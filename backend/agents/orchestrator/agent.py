@@ -167,7 +167,7 @@ if __name__ == "__main__":
             # Get user input based on chosen method
             if input_method == 'voice':
                 print("\n🎤 Listening... (Speak now, will auto-send after 4 seconds of silence)")
-                user_input = speech_to_text()
+                user_input = speech_to_text()  # stuck on this
                 if user_input:
                     print(f"\nYou said: {user_input}")
                     # Get response from agent

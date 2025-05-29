@@ -19,39 +19,26 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CRE
 # Audio recording parameters
 RATE = 16000
 CHUNK = int(RATE / 10)  # 100ms
-import signal
-from contextlib import contextmanager
-
-@contextmanager
-def timeout(duration):
-    def timeout_handler(signum, frame):
-        raise TimeoutError(f"Timed out after {duration} seconds")
-    
-    signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(duration)
-    try:
-        yield
-    finally:
-        signal.alarm(0)
 
 def speech_to_text() -> str:
     """Transcribe speech from audio file and return the transcribed text."""
+    timeout = Duration(seconds=7)
     language_code = "en-US"
     client = speech.SpeechClient()
     config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=RATE,
             language_code=language_code,
-            )
+    )
 
     streaming_config = speech.StreamingRecognitionConfig(
             config=config, 
             interim_results=True,
-            voice_activity_events=True, 
-            voice_activity_timeout=speech.StreamingRecognitionConfig.VoiceActivityTimeout(speech_end_timeout=Duration(seconds=7))
-
+            single_utterance=True,
+            enable_voice_activity_events=True, 
+            # =speech.StreamingRecognitionConfig.VoiceActivityTimeout(speech_end_timeout=timeout, speech_start_timeout=Duration(seconds=10))
     )
-            
+
     with MicrophoneStream(RATE, CHUNK) as stream:
                 audio_generator = stream.generator()
                 requests = (
@@ -59,7 +46,6 @@ def speech_to_text() -> str:
                     for content in audio_generator
                 )
                 responses = client.streaming_recognize(streaming_config, requests)
-                
                 # Get the transcribed text
-                transcribed_text = listen_print_loop(responses, silence_threshold=4)
-                return transcribed_text if transcribed_text else ""
+                transcribed_text = listen_print_loop(responses)
+                return transcribed_text if transcribed_text else ""                
