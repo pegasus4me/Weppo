@@ -1,0 +1,73 @@
+# Weppo - AI-Powered E-commerce Personalization Platform
+
+## Overview
+Weppo is an advanced e-commerce personalization platform that leverages artificial intelligence to transform your online store into a customer-centric experience. By analyzing customer behavior, preferences, and interactions, Weppo helps reduce cart abandonment, increase customer loyalty, and drive higher conversion rates.
+
+## Key Features
+- 🎯 Personalized Product Recommendations
+- 🛒 Smart Cart Abandonment Prevention
+- 👥 Customer Behavior Analysis
+- 🔄 Dynamic Content Personalization
+- 📊 Advanced Analytics Dashboard
+
+## Architecture
+
+### Backend Structure
+The backend is organized into several key components:
+
+```
+backend/
+├── agents/                 # AI Agents and Processing Modules
+│   ├── input/             # Input Speech processing and validation using Google 
+│   ├── model/             # ML models and algorithms
+│   ├── orchestrator/      # Workflow orchestration and coordination
+│   ├── mcp/              # Master Control Program for agent management
+│   ├── outils/           # Utility functions and helper tools
+│   ├── output/           # Output processing and formatting
+│   └── tests/            # Test suites and validation
+```
+
+### Component Descriptions
+
+#### Agents Module
+- **Input**: Handles data ingestion, validation, and preprocessing
+- **Model**: Contains machine learning models for personalization and prediction
+- **Orchestrator**: Manages workflow and coordinates between different agents
+- **MCP**: Master Control Program that oversees agent operations
+- **Outils**: Shared utilities and helper functions
+- **Output**: Processes and formats results for frontend consumption
+
+## Getting Started
+
+### Prerequisites
+- Python 3.8+
+- Virtual Environment (venv)
+- Required Python packages (see requirements.txt)
+
+### Installation
+1. Clone the repository
+```bash
+git clone https://github.com/your-username/weppo.git
+cd weppo
+```
+
+2. Set up virtual environment
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+4. Configure environment variables
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+## WARNING 
+Its still in active developement
+
