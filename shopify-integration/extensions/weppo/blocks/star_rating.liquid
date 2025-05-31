@@ -1,0 +1,38 @@
+{% schema %}
+  {
+    "name": "Personal Shopper Widget",
+    "target": "body",
+    "settings": [
+      {
+        "type": "text",
+        "id": "button_text",
+        "label": "Button Text",
+        "default": "Talk to your personal shopper"
+      },
+      {
+        "type": "color",
+        "id": "primary_color",
+        "label": "Primary Color",
+        "default": "#000000"
+      }
+    ]
+  }
+  {% endschema %}
+  
+  <div class="personal-shopper-widget" style="position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 1000; display: flex; height: 50vh;">
+   
+  </div>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const toggleButton = document.querySelector('.toggle-button');
+      const chatContainer = document.querySelector('.chat-container');
+      let isOpen = false;
+  
+      toggleButton.addEventListener('click', function() {
+        isOpen = !isOpen;
+        chatContainer.style.display = isOpen ? 'flex' : 'none';
+        toggleButton.style.borderRadius = isOpen ? '0' : '4px 0 0 4px';
+      });
+    });
+  </script>
