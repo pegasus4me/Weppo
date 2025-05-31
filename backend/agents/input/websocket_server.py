@@ -23,32 +23,42 @@ class AudioWebSocketServer:
     async def handler(self, websocket):
         """Handle individual WebSocket connections."""
         self.clients.add(websocket)
+        print(f"DEBUG: New client connected: {websocket.remote_address}")
         process_task = None # Initialize process_task
         try:
             # Create WebSocket stream for this connection
             ws_stream = WebSocketStream(self._rate, self._chunk)
+            print(f"DEBUG: ws_stream created: {id(ws_stream)} for client {websocket.remote_address}")
             
             # Define speech recognition task
             async def process_audio():
-                print("Starting speech recognition...")
+                print(f"DEBUG: process_audio() CALLED for ws_stream: {id(ws_stream)} client: {websocket.remote_address}")
+                print("Starting speech recognition...") # Original print
                 for transcript_segment in speech_to_text(ws_stream):
-                    print("Received transcript segment:", transcript_segment)
+                    print("Received transcript segment:", transcript_segment) # Original print
                     if transcript_segment and transcript_segment.strip():
                         await websocket.send(json.dumps({
                             "transcript": transcript_segment,
                             "is_final": True  # Each yielded segment is considered final for this message
                         }))
             
+            print(f"DEBUG: Entering 'async for message in websocket' loop for client {websocket.remote_address}.")
             # Handle incoming audio chunks
             async for message in websocket:
-                print(f"Received audio chunk of size: {len(message)} bytes")
+                print(f"Received audio chunk of size: {len(message)} bytes") # Original print
+
+                if not message:
+                    print(f"DEBUG: Received empty message from {websocket.remote_address}. Ignoring.")
+                    continue
 
                 if process_task is None:
-                    print("First audio chunk received. Starting speech recognition task.")
+                    print(f"DEBUG: First valid audio chunk received. Creating process_audio task for ws_stream: {id(ws_stream)} client: {websocket.remote_address}.")
+                    print("First audio chunk received. Starting speech recognition task.") # Original print
                     process_task = asyncio.create_task(process_audio())
 
                 ws_stream.put_audio(message)
             
+            print(f"DEBUG: Exited 'async for message in websocket' loop for client {websocket.remote_address}.")
             # Close the stream (signals generator to stop)
             await ws_stream.__exit__(None, None, None)
 
