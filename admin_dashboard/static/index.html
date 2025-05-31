@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Support Tickets</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        h1 { text-align: center; color: #333; }
+        .ticket-list { list-style-type: none; padding: 0; }
+        .ticket-item { background-color: #fff; border: 1px solid #ddd; margin-bottom: 15px; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .ticket-item h3 { margin-top: 0; color: #0056b3; }
+        .ticket-item p { margin: 5px 0; }
+        .ticket-item .status { font-weight: bold; }
+        .ticket-item .status.open { color: #28a745; }
+        .ticket-item .status.closed { color: #dc3545; }
+        .ticket-item .actions button { margin-top: 10px; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; background-color: #007bff; color: white; }
+        .ticket-item .actions button:hover { background-color: #0056b3; }
+        .ticket-item .actions select { margin-top: 10px; padding: 8px; border-radius: 4px; }
+        .conversation-history {
+            max-height: 100px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            padding: 5px;
+            margin-top: 5px;
+            background-color: #fdfdfd;
+        }
+    </style>
+</head>
+<body>
+    <h1>Admin Dashboard - Support Tickets</h1>
+    <ul id="ticketList" class="ticket-list">
+        <!-- Tickets will be loaded here by JavaScript -->
+    </ul>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

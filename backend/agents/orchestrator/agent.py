@@ -79,17 +79,28 @@ class PersonalShopperAgent:
             # Extract and clean the final response
             if messages:
                 last_message = messages[-1]
-                return self._extract_clean_response(last_message)
+                # Get the structured response (text + action)
+                extracted_info = self._extract_clean_response(last_message)
+
+                # If ticket creation is signaled, add the user_query to ticket_data
+                if extracted_info.get("action") == "create_ticket":
+                    extracted_info["ticket_data"] = {"user_query": user_query}
+                return extracted_info
             else:
-                return "I'm sorry, I couldn't process your request. Please try again."
+                return {"text_response": "I'm sorry, I couldn't process your request. Please try again."}
                 
         except Exception as e:
-            return f"I encountered an error: {str(e)}. Please try rephrasing your question."
+            # Ensure the chat method always returns a dictionary in the expected format
+            return {"text_response": f"I encountered an error: {str(e)}. Please try rephrasing your question."}
     
-    def _extract_clean_response(self, message) -> str:
+    def _extract_clean_response(self, message) -> Dict[str, Any]:
         """
-        Extract clean response from the agent message, handling various message types
+        Extract clean response from the agent message, handling various message types.
+        Returns a dictionary with "text_response" and optionally "action".
         """
+        action_taken = None
+        final_content = "I'm sorry, I couldn't generate a proper response."
+
         try:
             # Handle AIMessage objects
             if isinstance(message, AIMessage):
@@ -98,26 +109,38 @@ class PersonalShopperAgent:
                 # If content is empty, try to extract from additional_kwargs
                 if not content and 'reasoning_content' in message.additional_kwargs:
                     # This means the model hit token limits during reasoning
-                    return 'token limits '
-                
-                # Clean up any remaining artifacts from the raw response
-                if isinstance(content, str):
-                    # Remove debug information and format properly
-                    cleaned_content = self._clean_response_content(content)
-                    return cleaned_content
-                
-                return str(content) if content else "I'm sorry, I couldn't generate a proper response."
+                    final_content = 'token limits ' # Or a more user-friendly message
+                elif isinstance(content, str):
+                    if "ASSISTANT_CREATE_TICKET" in content:
+                        action_taken = "create_ticket"
+                        content = content.replace("ASSISTANT_CREATE_TICKET", "").strip()
+                    final_content = self._clean_response_content(content)
+                elif content: # If content is not str but exists
+                    final_content = str(content)
             
             # Handle other message types
-            elif hasattr(message, 'content'):
-                return str(message.content)
-            else:
-                return str(message)
-                
+            elif hasattr(message, 'content') and message.content:
+                # Assuming message.content is a string here
+                raw_content = str(message.content)
+                if "ASSISTANT_CREATE_TICKET" in raw_content:
+                    action_taken = "create_ticket"
+                    raw_content = raw_content.replace("ASSISTANT_CREATE_TICKET", "").strip()
+                final_content = self._clean_response_content(raw_content) # Clean even if not AIMessage
+            elif message: # Fallback if no .content but message itself might be stringable
+                 raw_content = str(message)
+                 if "ASSISTANT_CREATE_TICKET" in raw_content:
+                    action_taken = "create_ticket"
+                    raw_content = raw_content.replace("ASSISTANT_CREATE_TICKET", "").strip()
+                 final_content = self._clean_response_content(raw_content)
+
+
         except Exception as e:
             print(f"Error extracting response: {e}")
-            return "I apologize, but I encountered an issue formatting my response. Please try asking again."
-    
+            final_content = "I apologize, but I encountered an issue formatting my response. Please try asking again."
+            # action_taken remains None
+
+        return {"text_response": final_content, "action": action_taken}
+
     def _clean_response_content(self, content: str) -> str:
         """
         Clean and format the response content
