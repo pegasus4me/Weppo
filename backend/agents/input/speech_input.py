@@ -52,29 +52,43 @@ class WebSocketStream:
         Returns:
             A generator that outputs audio chunks.
         """
+        print("DEBUG:WebSocketStream.generator: Starting audio generator.")
         while not self.closed:
             # Use a blocking get() to ensure there's at least one chunk of
             # data, and stop iteration if the chunk is None, indicating the
             # end of the audio stream.
+            print("DEBUG:WebSocketStream.generator: Waiting for audio chunk...")
             chunk = self._buff.get()
+            print(f"DEBUG:WebSocketStream.generator: Received chunk, size: {len(chunk) if chunk else 'None'}.")
             if chunk is None:
+                print("DEBUG:WebSocketStream.generator: Received None chunk, exiting generator.")
                 return
             data = [chunk]
 
             # Now consume whatever other data's still buffered.
             while True:
                 try:
+                    # Attempt to get subsequent chunks without blocking
                     chunk = self._buff.get(block=False)
+                    print(f"DEBUG:WebSocketStream.generator: Received chunk from buffer, size: {len(chunk) if chunk else 'None'}.")
                     if chunk is None:
+                        # This case should ideally not be reached if None is only put on close,
+                        # and self.closed would be true, exiting the outer loop.
+                        # However, if it can happen, log and exit.
+                        print("DEBUG:WebSocketStream.generator: Received None chunk from buffer, exiting generator.")
                         return
                     data.append(chunk)
                 except queue.Empty:
+                    print("DEBUG:WebSocketStream.generator: Emptied buffer for current yield batch.")
                     break
 
-            yield b"".join(data)
+            joined_data = b"".join(data)
+            print(f"DEBUG:WebSocketStream.generator: Yielding combined audio data, size: {len(joined_data)}.")
+            yield joined_data
 
 def speech_to_text(audio_stream: Optional[WebSocketStream] = None) -> Generator[str, None, None]:
     """Transcribe speech from audio stream and return the transcribed text."""
+    print("DEBUG:speech_to_text: Entered function.")
     timeout = Duration(seconds=7)
     language_code = "en-US"
     client = speech.SpeechClient()
@@ -92,19 +106,28 @@ def speech_to_text(audio_stream: Optional[WebSocketStream] = None) -> Generator[
     )
 
     # Use provided WebSocket stream or create new MicrophoneStream
+    if audio_stream is None:
+        print("DEBUG:speech_to_text: audio_stream is None, using 'error' stream placeholder.")
     stream = audio_stream if audio_stream else "error"
+    print(f"DEBUG:speech_to_text: Starting with stream: {type(stream)}")
     with stream:
-
+        print("DEBUG:speech_to_text: Creating audio generator from stream.")
         audio_generator = stream.generator()
+        print("DEBUG:speech_to_text: Creating requests for Speech API.")
         requests = (
             speech.StreamingRecognizeRequest(audio_content=content)
             for content in audio_generator
         )
+        print("DEBUG:speech_to_text: Calling client.streaming_recognize...")
         responses = client.streaming_recognize(streaming_config, requests)
+        print("DEBUG:speech_to_text: client.streaming_recognize returned. Iterating over responses with listen_print_loop.")
 
         # Iterate over the transcripts yielded by listen_print_loop
+        print("DEBUG:speech_to_text: Starting iteration over listen_print_loop.")
         for transcript in listen_print_loop(responses):
+            print(f"DEBUG:speech_to_text: Yielding transcript from listen_print_loop: '{transcript}'")
             yield transcript
+        print("DEBUG:speech_to_text: Finished iteration over listen_print_loop.")
 
 def listen_print_loop(responses: object) -> Generator[str, None, None]:
     """Iterates through server responses and prints them.
@@ -122,21 +145,27 @@ def listen_print_loop(responses: object) -> Generator[str, None, None]:
     Returns:
         The transcribed text.
     """
+    print("DEBUG:listen_print_loop: Entered function.")
     num_chars_printed = 0
     
     for response in responses:
+        print(f"DEBUG:listen_print_loop: Received response: {response}")
         if not response.results:
+            print("DEBUG:listen_print_loop: Response has no results. Continuing to next response.")
             continue
             
         # The `results` list is consecutive. For streaming, we only care about
         # the first result being considered, since once it's `is_final`, it
         # moves on to considering the next utterance.
+        print(f"DEBUG:listen_print_loop: Processing result: {response.results[0]}")
         result = response.results[0]
         if not result.alternatives:
+            print("DEBUG:listen_print_loop: Result has no alternatives. Continuing to next response.")
             continue
             
         # Display the transcription of the top alternative.
         current_transcript = result.alternatives[0].transcript
+        print(f"DEBUG:listen_print_loop: Got alternatives. Top alternative: '{current_transcript}', Is final: {result.is_final}")
         
         # Display interim results, but with a carriage return at the end of the
         # line, so subsequent lines will overwrite them.
@@ -146,19 +175,22 @@ def listen_print_loop(responses: object) -> Generator[str, None, None]:
         overwrite_chars = " " * (num_chars_printed - len(current_transcript))
         
         if not result.is_final:
+            print(f"DEBUG:listen_print_loop: Interim transcript: '{current_transcript}'.")
             sys.stdout.write(current_transcript + overwrite_chars + "\r")
             sys.stdout.flush()
             num_chars_printed = len(current_transcript)
         else:
+            print(f"DEBUG:listen_print_loop: Final transcript: '{current_transcript}'. Yielding.")
             sys.stdout.write(current_transcript + overwrite_chars + "\n")
             sys.stdout.flush()
             # Exit recognition if any of the transcribed phrases could be
             # one of our keywords.
             if re.search(r"\b(exit|quit)\b", current_transcript, re.I):
-                print("Exiting..")
+                print("DEBUG:listen_print_loop: 'exit' or 'quit' detected.") # No break here anymore
+                print("Exiting..") # Original print
                 # If we want to stop the generator on "exit" or "quit", we might `return` here.
                 # For now, per instructions, we remove the break to allow continuous processing.
 
             yield current_transcript
             num_chars_printed = 0
-    
+    print("DEBUG:listen_print_loop: Exiting function normally after loop completion.")

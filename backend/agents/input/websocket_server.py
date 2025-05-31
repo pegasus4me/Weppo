@@ -23,11 +23,12 @@ class AudioWebSocketServer:
     async def handler(self, websocket):
         """Handle individual WebSocket connections."""
         self.clients.add(websocket)
+        process_task = None # Initialize process_task
         try:
             # Create WebSocket stream for this connection
             ws_stream = WebSocketStream(self._rate, self._chunk)
             
-            # Start speech recognition in a separate task
+            # Define speech recognition task
             async def process_audio():
                 print("Starting speech recognition...")
                 for transcript_segment in speech_to_text(ws_stream):
@@ -38,17 +39,22 @@ class AudioWebSocketServer:
                             "is_final": True  # Each yielded segment is considered final for this message
                         }))
             
-            # Start the audio processing task
-            process_task = asyncio.create_task(process_audio())
-            
             # Handle incoming audio chunks
             async for message in websocket:
                 print(f"Received audio chunk of size: {len(message)} bytes")
+
+                if process_task is None:
+                    print("First audio chunk received. Starting speech recognition task.")
+                    process_task = asyncio.create_task(process_audio())
+
                 ws_stream.put_audio(message)
             
-            # Close the stream
+            # Close the stream (signals generator to stop)
             await ws_stream.__exit__(None, None, None)
-            await process_task
+
+            # Wait for the processing task to complete, if it was started
+            if process_task:
+                await process_task
                 
         finally:
             self.clients.remove(websocket)
