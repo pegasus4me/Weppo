@@ -30,13 +30,13 @@ class AudioWebSocketServer:
             # Start speech recognition in a separate task
             async def process_audio():
                 print("Starting speech recognition...")
-                transcript = speech_to_text(ws_stream) # not working
-                print("Received transcript:", transcript)
-                if transcript:
-                    await websocket.send(json.dumps({
-                        "transcript": transcript,
-                        "is_final": True
-                    }))
+                for transcript_segment in speech_to_text(ws_stream):
+                    print("Received transcript segment:", transcript_segment)
+                    if transcript_segment and transcript_segment.strip():
+                        await websocket.send(json.dumps({
+                            "transcript": transcript_segment,
+                            "is_final": True  # Each yielded segment is considered final for this message
+                        }))
             
             # Start the audio processing task
             process_task = asyncio.create_task(process_audio())

@@ -7,7 +7,7 @@
 """
 
 from dotenv import load_dotenv
-from typing import List, Optional
+from typing import List, Optional, Generator
 from google.cloud import speech
 from google.protobuf.duration_pb2 import Duration
 from backend.agents.input.microphone_stream import MicrophoneStream
@@ -73,7 +73,7 @@ class WebSocketStream:
 
             yield b"".join(data)
 
-def speech_to_text(audio_stream: Optional[WebSocketStream] = None) -> str:
+def speech_to_text(audio_stream: Optional[WebSocketStream] = None) -> Generator[str, None, None]:
     """Transcribe speech from audio stream and return the transcribed text."""
     timeout = Duration(seconds=7)
     language_code = "en-US"
@@ -87,7 +87,7 @@ def speech_to_text(audio_stream: Optional[WebSocketStream] = None) -> str:
     streaming_config = speech.StreamingRecognitionConfig(
             config=config, 
             interim_results=True,
-            single_utterance=True,
+            single_utterance=False,
             enable_voice_activity_events=True, 
     )
 
@@ -102,12 +102,11 @@ def speech_to_text(audio_stream: Optional[WebSocketStream] = None) -> str:
         )
         responses = client.streaming_recognize(streaming_config, requests)
 
-        # Get the transcribed text
-        transcribed_text = listen_print_loop(responses)
-        print("transcribed", transcribed_text)
-        return transcribed_text if transcribed_text else ""
+        # Iterate over the transcripts yielded by listen_print_loop
+        for transcript in listen_print_loop(responses):
+            yield transcript
 
-def listen_print_loop(responses: object) -> str:
+def listen_print_loop(responses: object) -> Generator[str, None, None]:
     """Iterates through server responses and prints them.
     The responses passed is a generator that will block until a response
     is provided by the server.
@@ -124,7 +123,6 @@ def listen_print_loop(responses: object) -> str:
         The transcribed text.
     """
     num_chars_printed = 0
-    transcript = ""
     
     for response in responses:
         if not response.results:
@@ -138,28 +136,29 @@ def listen_print_loop(responses: object) -> str:
             continue
             
         # Display the transcription of the top alternative.
-        transcript = result.alternatives[0].transcript
+        current_transcript = result.alternatives[0].transcript
         
         # Display interim results, but with a carriage return at the end of the
         # line, so subsequent lines will overwrite them.
         #
         # If the previous result was longer than this one, we need to print
         # some extra spaces to overwrite the previous result
-        overwrite_chars = " " * (num_chars_printed - len(transcript))
+        overwrite_chars = " " * (num_chars_printed - len(current_transcript))
         
         if not result.is_final:
-            sys.stdout.write(transcript + overwrite_chars + "\r")
+            sys.stdout.write(current_transcript + overwrite_chars + "\r")
             sys.stdout.flush()
-            num_chars_printed = len(transcript)
+            num_chars_printed = len(current_transcript)
         else:
-            print(transcript + overwrite_chars)
+            sys.stdout.write(current_transcript + overwrite_chars + "\n")
+            sys.stdout.flush()
             # Exit recognition if any of the transcribed phrases could be
             # one of our keywords.
-            if re.search(r"\b(exit|quit)\b", transcript, re.I):
+            if re.search(r"\b(exit|quit)\b", current_transcript, re.I):
                 print("Exiting..")
-                break
+                # If we want to stop the generator on "exit" or "quit", we might `return` here.
+                # For now, per instructions, we remove the break to allow continuous processing.
+
+            yield current_transcript
             num_chars_printed = 0
-            # Break when result is final
-            break
     
-    return transcript
