@@ -163,4 +163,5 @@ def listen_print_loop(responses: object) -> str:
             break
     
     return transcript
-    
+if __name__ == "__main__":
+    listen_print_loop()

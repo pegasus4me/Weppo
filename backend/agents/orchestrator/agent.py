@@ -138,7 +138,6 @@ class PersonalShopperAgent:
         
         return '\n'.join(cleaned_lines).strip()
     
-    
     def get_recommendations(self, user_query: str) -> List[Dict[str, Any]]:
         """
         Get product recommendations based on user query
@@ -167,7 +166,8 @@ if __name__ == "__main__":
             # Get user input based on chosen method
             if input_method == 'voice':
                 print("\n🎤 Listening... (Speak now, will auto-send after 4 seconds of silence)")
-                user_input = speech_to_text()  # stuck on this
+                """
+                user_input = speech_to_text() 
                 if user_input:
                     print(f"\nYou said: {user_input}")
                     # Get response from agent
@@ -176,6 +176,10 @@ if __name__ == "__main__":
                     print(response)
                 else:
                     print("\nNo speech detected. Please try again.")
+                """
+                 # The voice input will now come from the WebSocket client
+                # We'll wait for the input to be sent to us
+                user_input = input("\nEnter your voice input: ").strip()
             else:
                 user_input = input("\nYou: ").strip()
                 
