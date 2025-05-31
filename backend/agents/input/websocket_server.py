@@ -93,8 +93,6 @@ class AudioWebSocketServer:
 
             # Handle incoming audio chunks
             async for message in websocket:
-                print(f"Received audio chunk of size: {len(message)} bytes") # Original print
-
                 if not message:
                     # Empty message check removed as per plan, if it's important, it can be re-added with non-DEBUG prefix.
                     continue
