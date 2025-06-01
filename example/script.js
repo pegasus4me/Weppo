@@ -1,5 +1,5 @@
 // WebSocket connection
-const ws = new WebSocket('ws://localhost:8000');
+const ws = new WebSocket('ws://localhost:8765');
 console.log('WebSocket instance created');
 
 // Audio context and configuration
@@ -19,6 +19,7 @@ const agentResponseDiv = document.getElementById('agentResponse');
 // WebSocket event handlers
 ws.onopen = () => {
     console.log('WebSocket connection established');
+    ws.send("START_STT")
     statusDiv.textContent = 'Status: Connected to server';
     startButton.disabled = false;
 };

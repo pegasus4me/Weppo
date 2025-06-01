@@ -10,8 +10,8 @@ if not ELEVENLABS_API_KEY:
 client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
 # TODO: Make voice_id and model_id configurable if needed
-DEFAULT_VOICE_ID = "Rachel" # Example, choose an appropriate default or make configurable
-DEFAULT_MODEL_ID = "eleven_multilingual_v2" # Or your preferred model
+DEFAULT_VOICE_ID = "tnSpp4vdxKPjI9w0GnoV" # Example, choose an appropriate default or make configurable
+DEFAULT_MODEL_ID = "eleven_flash_v2_5" # Or your preferred model
 
 async def text_to_speech_stream(text: str, voice_id: str = None, model_id: str = None):
     """
