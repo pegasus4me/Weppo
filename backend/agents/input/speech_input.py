@@ -105,9 +105,11 @@ def speech_to_text(audio_stream: Optional[WebSocketStream] = None) -> Generator[
             for content in audio_generator
         )
         responses = client.streaming_recognize(streaming_config, requests)
+        print("DEBUG:", responses)
 
         # Iterate over the transcripts yielded by listen_print_loop
         for transcript in listen_print_loop(responses):
+            print("MONITOR:", transcript)
             yield transcript
 
 def listen_print_loop(responses: object) -> Generator[str, None, None]:

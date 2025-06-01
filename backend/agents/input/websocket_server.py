@@ -68,11 +68,11 @@ class AudioWebSocketServer:
                     elif message == "STOP_STT":
                         stt_active = False
                         print("INFO: STT processing deactivated by client.")
-                        await ws_stream.__exit__(None, None, None) # Properly close current stream
+                        ws_stream.__exit__(None, None, None) # Properly close current stream
                          # Process accumulated audio after STOP_STT
                         print("INFO: STOP_STT received. Processing accumulated audio.")
                         # This block is duplicated below for when connection closes. Consider refactoring.
-                        await self._process_stt_agent_tts(websocket, ws_stream)
+                        await self._process_stt_agent_tts(websocket, ws_stream, is_connection_active=True)
                         ws_stream = WebSocketStream(self._rate, self._chunk) # Reset stream for potential next START_STT
                     continue # Don't process strings as audio
 
@@ -82,15 +82,15 @@ class AudioWebSocketServer:
                     else:
                         print(f"DEBUG: Received non-bytes message while STT active. Type: {type(message)}. Ignoring.")
                     continue
-
+                print(f"GOT AUDIO BYTES: size {len(message)}") # <--- ADD THIS LINE MANUALLY
                 ws_stream.put_audio(message)
 
             # This part executes if the `async for message in websocket:` loop terminates,
             # which usually means the client disconnected.
             if stt_active:
                 print("INFO: WebSocket connection closed by client. Processing any pending audio for STT.")
-                await ws_stream.__exit__(None, None, None) # Ensure all audio is flushed to stream
-                await self._process_stt_agent_tts(websocket, ws_stream)
+                ws_stream.__exit__(None, None, None) # Ensure all audio is flushed to stream
+                await self._process_stt_agent_tts(websocket, ws_stream, is_connection_active=False)
 
 
         except websockets.exceptions.ConnectionClosedOK:
@@ -104,7 +104,7 @@ class AudioWebSocketServer:
                 self.clients.remove(websocket)
             print(f"DEBUG: Client {websocket.remote_address} removed. Total clients: {len(self.clients)}")
 
-    async def _process_stt_agent_tts(self, websocket, ws_stream: WebSocketStream):
+    async def _process_stt_agent_tts(self, websocket, ws_stream: WebSocketStream, is_connection_active: bool = True):
         """Helper function to process STT, call agent, and stream TTS response."""
         final_transcript = ""
         loop = asyncio.get_running_loop()
@@ -145,46 +145,96 @@ class AudioWebSocketServer:
             print(f"INFO: Final transcript: '{final_transcript}'")
 
             if final_transcript:
-                if websocket.open:
-                    await websocket.send(json.dumps({"transcript": final_transcript, "is_final": True, "status": "processing_agent"}))
+                if is_connection_active:
+                    try:
+                        if websocket.open: 
+                            await websocket.send(json.dumps({"transcript": final_transcript, "is_final": True, "status": "processing_agent"}))
+                    except (websockets.exceptions.ConnectionClosed, AttributeError) as e:
+                        print(f"DEBUG: Failed to send 'transcript' to websocket, connection likely closed or stale: {e}")
+                    except Exception as e:
+                        print(f"ERROR: Unexpected error during websocket.send (transcript): {e}")
                 
                 agent_response_text = await self._call_agent_api(final_transcript)
                 print(f"INFO: Agent response: '{agent_response_text}'")
-                if websocket.open:
-                    await websocket.send(json.dumps({"agent_response": agent_response_text, "status": "processing_tts"}))
+                if is_connection_active:
+                    try:
+                        if websocket.open:
+                            await websocket.send(json.dumps({"agent_response": agent_response_text, "status": "processing_tts"}))
+                    except (websockets.exceptions.ConnectionClosed, AttributeError) as e:
+                        print(f"DEBUG: Failed to send 'agent_response' to websocket, connection likely closed or stale: {e}")
+                    except Exception as e:
+                        print(f"ERROR: Unexpected error during websocket.send (agent_response): {e}")
 
                 if agent_response_text and not agent_response_text.startswith("Error:"):
                     audio_chunk_count = 0
                     async for audio_chunk in text_to_speech_stream(agent_response_text):
-                        if audio_chunk and websocket.open:
-                            await websocket.send(audio_chunk)
-                            audio_chunk_count += 1
+                        if audio_chunk and is_connection_active:
+                            try:
+                                if websocket.open: # Check open before each send
+                                    await websocket.send(audio_chunk)
+                                    audio_chunk_count += 1 # Increment only on successful send attempt
+                                else:
+                                    print(f"DEBUG: WebSocket no longer open, skipping send of TTS chunk.")
+                                    break # Exit loop if not open
+                            except (websockets.exceptions.ConnectionClosed, AttributeError) as e:
+                                print(f"DEBUG: Failed to send TTS audio chunk, connection likely closed or stale: {e}")
+                                break # Exit loop on error
+                            except Exception as e:
+                                print(f"ERROR: Unexpected error during websocket.send (TTS audio chunk): {e}")
+                                break # Exit loop on error
                     print(f"INFO: Sent {audio_chunk_count} audio chunks for TTS.")
-                    if websocket.open:
-                        await websocket.send(json.dumps({"status": "tts_complete"}))
+                    if is_connection_active:
+                        try:
+                            if websocket.open:
+                                await websocket.send(json.dumps({"status": "tts_complete"}))
+                        except (websockets.exceptions.ConnectionClosed, AttributeError) as e:
+                            print(f"DEBUG: Failed to send 'tts_complete' status to websocket, connection likely closed or stale: {e}")
+                        except Exception as e:
+                            print(f"ERROR: Unexpected error during websocket.send (tts_complete): {e}")
                 elif agent_response_text.startswith("Error:"):
-                    if websocket.open:
-                        await websocket.send(json.dumps({"error": agent_response_text, "status": "error_agent"}))
+                    if is_connection_active:
+                        try:
+                            if websocket.open:
+                                await websocket.send(json.dumps({"error": agent_response_text, "status": "error_agent"}))
+                        except (websockets.exceptions.ConnectionClosed, AttributeError) as e:
+                            print(f"DEBUG: Failed to send 'error_agent' status to websocket, connection likely closed or stale: {e}")
+                        except Exception as e:
+                            print(f"ERROR: Unexpected error during websocket.send (error_agent): {e}")
                 else:
                     print("INFO: Empty agent response. Nothing to TTS.")
-                    if websocket.open:
-                        await websocket.send(json.dumps({"status": "tts_skipped_empty_agent_response"}))
+                    if is_connection_active:
+                        try:
+                            if websocket.open:
+                                await websocket.send(json.dumps({"status": "tts_skipped_empty_agent_response"}))
+                        except (websockets.exceptions.ConnectionClosed, AttributeError) as e:
+                            print(f"DEBUG: Failed to send 'tts_skipped_empty_agent_response' status to websocket, connection likely closed or stale: {e}")
+                        except Exception as e:
+                            print(f"ERROR: Unexpected error during websocket.send (tts_skipped_empty_agent_response): {e}")
             else:
                 print("INFO: Empty transcript. Nothing to send to agent.")
-                if websocket.open:
-                    await websocket.send(json.dumps({"status": "stt_empty_transcript"}))
+                if is_connection_active:
+                    try:
+                        if websocket.open:
+                            await websocket.send(json.dumps({"status": "stt_empty_transcript"}))
+                    except (websockets.exceptions.ConnectionClosed, AttributeError) as e:
+                        print(f"DEBUG: Failed to send 'stt_empty_transcript' status to websocket, connection likely closed or stale: {e}")
+                    except Exception as e:
+                        print(f"ERROR: Unexpected error during websocket.send (stt_empty_transcript): {e}")
 
         except ConnectionResetError:
             print("ERROR: WebSocket connection reset by client during STT/Agent/TTS processing.")
-        except websockets.exceptions.ConnectionClosed:
+        except websockets.exceptions.ConnectionClosed: # This might be redundant now with specific checks, but good as a fallback
             print("ERROR: WebSocket connection closed unexpectedly during STT/Agent/TTS processing.")
         except Exception as e:
             print(f"ERROR: Error during STT/Agent/TTS processing: {e}")
-            if websocket.open:
+            if is_connection_active: # Check before attempting to send error
                 try:
-                    await websocket.send(json.dumps({"error": str(e), "status": "error_processing"}))
-                except Exception as send_err:
-                    print(f"ERROR: Failed to send error to client: {send_err}")
+                    if websocket.open:
+                        await websocket.send(json.dumps({"error": str(e), "status": "error_processing"}))
+                except (websockets.exceptions.ConnectionClosed, AttributeError) as send_e: # Specific exceptions for send
+                    print(f"DEBUG: Failed to send 'error_processing' status to client, connection likely closed or stale: {send_e}")
+                except Exception as send_err: 
+                    print(f"ERROR: Failed to send error_processing status to client: {send_err}")
 
 
     async def start(self):
