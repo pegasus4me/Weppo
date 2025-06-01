@@ -40,21 +40,57 @@ ws.onmessage = (event) => {
     try {
         const response = JSON.parse(event.data);
         console.log('Parsed response:', response);
+        
+        // Handle transcript updates
         if (response.transcript) {
-            transcriptDiv.textContent = `Transcript: ${response.transcript}`;
+            transcriptDiv.innerHTML = `<strong>You said:</strong> ${response.transcript}`;
         }
+        
+        // Handle agent responses
         if (response.agent_response) {
-            agentResponseDiv.textContent = `Agent: ${response.agent_response}`;
+            // Convert markdown-like formatting to HTML for better display
+            const formattedResponse = formatAgentResponse(response.agent_response);
+            agentResponseDiv.innerHTML = `<strong>Agent:</strong><br>${formattedResponse}`;
         }
+        
+        // Handle errors
+        if (response.error) {
+            agentResponseDiv.innerHTML = `<strong style="color: red;">Error:</strong> ${response.error}`;
+        }
+        
     } catch (e) {
         console.error('Error parsing message:', e);
+        agentResponseDiv.innerHTML = `<strong style="color: red;">Error:</strong> Could not parse server response`;
     }
 };
+
+// Function to format agent response for better display
+function formatAgentResponse(response) {
+    // Convert markdown-style headers to HTML
+    let formatted = response
+        .replace(/### (.*?)(?=\n|$)/g, '<h4>$1</h4>')
+        .replace(/## (.*?)(?=\n|$)/g, '<h3>$1</h3>')
+        .replace(/# (.*?)(?=\n|$)/g, '<h2>$1</h2>')
+        // Convert markdown links to HTML links
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+        // Convert bold text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        // Convert bullet points
+        .replace(/^- (.*$)/gim, '• $1')
+        // Convert line breaks to HTML
+        .replace(/\n/g, '<br>');
+    
+    return formatted;
+}
 
 // Audio capture functions
 async function startRecording() {
     console.log('Starting recording...');
     try {
+        // Clear previous responses
+        transcriptDiv.textContent = '';
+        agentResponseDiv.textContent = '';
+        
         // Request microphone access
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         console.log('Microphone access granted');
@@ -99,7 +135,7 @@ async function startRecording() {
         workletNode.connect(audioContext.destination);
         console.log('Audio nodes connected');
         
-        statusDiv.textContent = 'Status: Recording...';
+        statusDiv.textContent = 'Status: Recording... Speak now!';
         startButton.disabled = true;
         stopButton.disabled = false;
     } catch (error) {
@@ -135,4 +171,3 @@ stopButton.addEventListener('click', stopRecording);
 startButton.disabled = true;
 stopButton.disabled = true;
 console.log('UI initialized');
-

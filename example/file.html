@@ -3,59 +3,326 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Weppo Audio Capture</title>
+    <title>Weppo Voice Shopping Assistant</title>
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
         .controls {
-            margin: 20px;
+            margin: 20px 0;
             padding: 20px;
             border: 1px solid #ccc;
-            border-radius: 5px;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         button {
-            padding: 10px 20px;
+            padding: 12px 24px;
             margin: 5px;
             font-size: 16px;
             cursor: pointer;
             background-color: #4CAF50;
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
+            transition: background-color 0.3s;
         }
-        button:hover {
+        button:hover:not(:disabled) {
             background-color: #45a049;
         }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
         #status {
-            margin-top: 10px;
-            padding: 10px;
-            border-radius: 5px;
-            background-color: #f8f9fa;
-            border: 1px solid #ddd;
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 6px;
+            background-color: #e8f4fd;
+            border: 1px solid #bee5eb;
+            font-weight: 500;
         }
         .response-area {
             margin-top: 20px;
-            padding: 15px;
+            padding: 20px;
             border: 1px solid #ddd;
-            border-radius: 5px;
-            background-color: #f8f9fa;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .response-area h3 {
             margin-top: 0;
             color: #333;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        #transcript {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #007bff;
+            border-radius: 4px;
+            min-height: 20px;
+        }
+        #agentResponse {
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #28a745;
+            border-radius: 4px;
+            min-height: 20px;
+            line-height: 1.6;
+        }
+        #agentResponse h2, #agentResponse h3, #agentResponse h4 {
+            color: #2c5530;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+        #agentResponse h2 {
+            font-size: 1.4em;
+        }
+        #agentResponse h3 {
+            font-size: 1.2em;
+        }
+        #agentResponse h4 {
+            font-size: 1.1em;
+        }
+        #agentResponse a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        #agentResponse a:hover {
+            text-decoration: underline;
+        }
+        #agentResponse strong {
+            color: #2c5530;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+        .instructions {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .instructions h4 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .instructions p {
+            margin-bottom: 0;
+            color: #856404;
         }
     </style>
 </head>
 <body>
-    <div class="controls">
-        <h2>Audio Capture Controls</h2>
-        <button id="startButton">Start Recording</button>
-        <button id="stopButton">Stop Recording</button>
-        <div id="status">Status: Not connected</div>
-        <div class="response-area">
-            <h3>Responses</h3>
-            <div id="transcript"></div>
-            <div id="agentResponse"></div>
-        </div>
+    <div class="header">
+        <h1>🛍️ Voice Shopping Assistant</h1>
+        <p>Speak naturally to find products and get personalized recommendations</p>
     </div>
-    <script src="script.js"></script>
+
+    <div class="instructions">
+        <h4>How to use:</h4>
+        <p>1. Click "Start Recording" and allow microphone access<br>
+        2. Speak naturally about what you're looking for<br>
+        3. The assistant will provide product recommendations<br>
+        4. Click "Stop Recording" when finished</p>
+    </div>
+
+    <div class="controls">
+        <h2>Audio Controls</h2>
+        <button id="startButton">🎤 Start Recording</button>
+        <button id="stopButton">⏹️ Stop Recording</button>
+        <div id="status">Status: Not connected</div>
+    </div>
+
+    <div class="response-area">
+        <h3>💬 Conversation</h3>
+        <div id="transcript"></div>
+        <div id="agentResponse"></div>
+    </div>
+
+    <script>
+        // WebSocket connection
+        const ws = new WebSocket('ws://localhost:8000');
+        console.log('WebSocket instance created');
+
+        // Audio context and configuration
+        let audioContext;
+        let mediaStream;
+        let workletNode;
+        const SAMPLE_RATE = 16000; // Match backend's RATE
+        const BUFFER_SIZE = 1024;
+
+        // UI Elements
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const statusDiv = document.getElementById('status');
+        const transcriptDiv = document.getElementById('transcript');
+        const agentResponseDiv = document.getElementById('agentResponse');
+
+        // WebSocket event handlers
+        ws.onopen = () => {
+            console.log('WebSocket connection established');
+            statusDiv.textContent = 'Status: ✅ Connected to server';
+            startButton.disabled = false;
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket connection closed');
+            statusDiv.textContent = 'Status: ❌ Disconnected from server';
+            startButton.disabled = true;
+            stopButton.disabled = true;
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            statusDiv.textContent = 'Status: ⚠️ Error connecting to server';
+        };
+
+        ws.onmessage = (event) => {
+            console.log('Received message from server:', event.data);
+            try {
+                const response = JSON.parse(event.data);
+                console.log('Parsed response:', response);
+                
+                // Handle transcript updates
+                if (response.transcript) {
+                    transcriptDiv.innerHTML = `<strong>You said:</strong> "${response.transcript}"`;
+                }
+                
+                // Handle agent responses
+                if (response.agent_response) {
+                    // Convert markdown-like formatting to HTML for better display
+                    const formattedResponse = formatAgentResponse(response.agent_response);
+                    agentResponseDiv.innerHTML = `<strong>Assistant:</strong><br><br>${formattedResponse}`;
+                }
+                
+                // Handle errors
+                if (response.error) {
+                    agentResponseDiv.innerHTML = `<strong style="color: #dc3545;">Error:</strong> ${response.error}`;
+                }
+                
+            } catch (e) {
+                console.error('Error parsing message:', e);
+                agentResponseDiv.innerHTML = `<strong style="color: #dc3545;">Error:</strong> Could not parse server response`;
+            }
+        };
+
+        // Function to format agent response for better display
+        function formatAgentResponse(response) {
+            // Convert markdown-style headers to HTML
+            let formatted = response
+                .replace(/### (.*?)(?=\n|$)/g, '<h4>$1</h4>')
+                .replace(/## (.*?)(?=\n|$)/g, '<h3>$1</h3>')
+                .replace(/# (.*?)(?=\n|$)/g, '<h2>$1</h2>')
+                // Convert markdown links to HTML links
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+                // Convert bold text
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                // Convert bullet points
+                .replace(/^- (.*$)/gim, '• $1')
+                // Convert line breaks to HTML
+                .replace(/\n/g, '<br>');
+            
+            return formatted;
+        }
+
+        // Audio capture functions
+        async function startRecording() {
+            console.log('Starting recording...');
+            try {
+                // Clear previous responses
+                transcriptDiv.innerHTML = '<em>Listening...</em>';
+                agentResponseDiv.innerHTML = '<em>Ready to help you find products...</em>';
+                
+                // Request microphone access
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                console.log('Microphone access granted');
+                
+                // Create audio context
+                audioContext = new AudioContext({
+                    sampleRate: SAMPLE_RATE
+                });
+                console.log('Audio context created with sample rate:', SAMPLE_RATE);
+
+                // Load and initialize the audio worklet
+                await audioContext.audioWorklet.addModule('audio-processor.js');
+                console.log('Audio worklet loaded');
+                
+                // Create audio source from microphone
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                console.log('Audio source created from media stream');
+                
+                // Create worklet node
+                workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+                console.log('Audio worklet node created');
+                
+                // Handle audio data from the worklet
+                workletNode.port.onmessage = (event) => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        const audioData = event.data;
+                        console.log('Received audio data from worklet, length:', audioData.length);
+                        // Convert Float32Array to Int16Array for sending
+                        const pcmData = new Int16Array(audioData.length);
+                        for (let i = 0; i < audioData.length; i++) {
+                            pcmData[i] = audioData[i] * 0x7FFF;
+                        }
+                        console.log('Sending PCM data to server, length:', pcmData.length);
+                        ws.send(pcmData.buffer);
+                    } else {
+                        console.warn('WebSocket not open, cannot send audio data');
+                    }
+                };
+                
+                // Connect the nodes
+                source.connect(workletNode);
+                workletNode.connect(audioContext.destination);
+                console.log('Audio nodes connected');
+                
+                statusDiv.textContent = 'Status: 🎤 Recording... Speak now!';
+                startButton.disabled = true;
+                stopButton.disabled = false;
+            } catch (error) {
+                console.error('Error starting recording:', error);
+                statusDiv.textContent = 'Status: ❌ Error starting recording';
+            }
+        }
+
+        function stopRecording() {
+            console.log('Stopping recording...');
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                console.log('Media stream tracks stopped');
+            }
+            if (workletNode) {
+                workletNode.disconnect();
+                console.log('Worklet node disconnected');
+            }
+            if (audioContext) {
+                audioContext.close();
+                console.log('Audio context closed');
+            }
+            statusDiv.textContent = 'Status: ✅ Connected to server';
+            startButton.disabled = false;
+            stopButton.disabled = true;
+        }
+
+        // Event listeners
+        startButton.addEventListener('click', startRecording);
+        stopButton.addEventListener('click', stopRecording);
+
+        // Initialize UI state
+        startButton.disabled = true;
+        stopButton.disabled = true;
+        console.log('UI initialized');
+    </script>
 </body>
 </html>
