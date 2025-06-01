@@ -1,10 +1,17 @@
+import os
+import sys
+from pathlib import Path
+
+# Add the project root directory to Python path
+project_root = str(Path(__file__).parent.parent)
+sys.path.insert(0, project_root)
+
 from fastapi import FastAPI, Request, status, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from backend.apis.agent import router as agent_router, initialize_agent as initialize_agent_module
 from backend.apis.support import router as support_router
 from dotenv import load_dotenv
-import os
 import logging
 from contextlib import asynccontextmanager
 

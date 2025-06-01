@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 router = APIRouter()
-STORE_DOMAIN = os.getenv("SHOPIFY_STORE_DOMAIN", "your-shopify-store.myshopify.com")
+STORE_DOMAIN = "www.allbirds.com"  # test
 # Initial checks for API keys are removed here as they are better handled in initialize_agent
 # and will prevent agent_instance from being created if missing.
 agent_instance = None
