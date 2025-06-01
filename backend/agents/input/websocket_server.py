@@ -5,6 +5,7 @@ import re
 import json
 from google.cloud import speech
 from backend.agents.input.speech_input import speech_to_text, WebSocketStream
+from backend.agents.orchestrator.agent import PersonalShopperAgent
 """
 ws connection with client <-> server
 """
@@ -13,7 +14,8 @@ RATE = 16000
 CHUNK = int(RATE / 10)  # 100ms
 
 class AudioWebSocketServer:
-    def __init__(self, host='localhost', port=8000, rate: int = RATE, chunk: int = CHUNK):
+    def __init__(self, agent: PersonalShopperAgent, host='localhost', port=8000, rate: int = RATE, chunk: int = CHUNK):
+        self.agent = agent
         self.host = host
         self.port = port
         self._rate = rate
@@ -71,22 +73,32 @@ class AudioWebSocketServer:
 
                     if processing_exception:
                         print(f"ERROR: An exception occurred during speech processing: {processing_exception}. Breaking loop.") # Kept
-                        # Optionally, send an error message to the client
-                        # await websocket.send(json.dumps({"error": str(processing_exception)}))
+                        await websocket.send(json.dumps({"error": "Error during speech transcription", "details": str(processing_exception)}))
                         break
 
                     print(f"Received transcript segment (from queue): {transcript_segment}") # Kept
                     if transcript_segment and transcript_segment.strip():
-                        await websocket.send(json.dumps({
-                            "transcript": transcript_segment,
-                            "is_final": True
-                        }))
+                        try:
+                            print(f"INFO: Calling agent with transcript: {transcript_segment}")
+                            response_from_agent = await loop.run_in_executor(None, self.agent.chat, transcript_segment)
+                            print(f"INFO: Agent response: {response_from_agent}")
+                            await websocket.send(json.dumps({
+                                "agent_response": response_from_agent,
+                                "original_transcript": transcript_segment
+                            }))
+                        except Exception as e:
+                            print(f"ERROR: Error calling agent or sending response: {e}")
+                            await websocket.send(json.dumps({
+                                "error": f"Error processing agent response: {e}",
+                                "original_transcript": transcript_segment
+                            }))
 
                     transcript_queue.task_done() # Notify queue item processed
 
                 if processing_exception:
                     # Re-raise or handle the exception as appropriate for the server
                     # For now, just printing it prominently in server logs if it reaches here
+                    # The error is already sent to client in the loop, so no need to send again here.
                     print(f"ERROR: Final check: Speech processing encountered an error for ws_stream {id(ws_stream)}: {processing_exception}") # Kept
 
                 # Removed: DEBUG: process_audio finished consuming queue...

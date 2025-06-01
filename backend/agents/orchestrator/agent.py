@@ -177,9 +177,10 @@ if __name__ == "__main__":
                 else:
                     print("\nNo speech detected. Please try again.")
                 """
-                 # The voice input will now come from the WebSocket client
-                # We'll wait for the input to be sent to us
-                user_input = input("\nEnter your voice input: ").strip()
+                print("\n🎤 Voice input is now handled via the WebSocket server.")
+                print("   This script's direct voice input is disabled.")
+                print("   Please connect a WebSocket client to send audio and receive agent responses.")
+                continue # Skip to the next iteration of the loop
             else:
                 user_input = input("\nYou: ").strip()
                 
