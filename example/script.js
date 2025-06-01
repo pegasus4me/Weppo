@@ -123,7 +123,12 @@ function stopRecording() {
         audioContext.close();
         console.log('Audio context closed');
     }
-    statusDiv.textContent = 'Status: Connected to server';
+    if (ws && ws.readyState === WebSocket.OPEN) { // Check if ws exists and is open
+        console.log("Client explicitly closing WebSocket.");
+        ws.close();
+    }
+    // --------------------------
+    statusDiv.textContent = 'Status: Connected to server'; // Or 'Disconnected' as per your onclose handler
     startButton.disabled = false;
     stopButton.disabled = true;
 }

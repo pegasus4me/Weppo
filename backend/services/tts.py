@@ -18,10 +18,13 @@ async def text_to_speech_stream(text: str, voice_id: str = None, model_id: str =
     Converts text to speech and yields audio chunks.
     """
     if not text:
-        return
+        print("INFO: text_to_speech_stream called with empty text. Yielding nothing.")
+        if False: # This is a trick to make sure it's an async generator
+            yield
+        return # Now it returns an empty async generator, not None.
 
-    actual_voice_id = voice_id or DEFAULT_VOICE_ID
-    actual_model_id = model_id or DEFAULT_MODEL_ID
+    actual_voice_id =  DEFAULT_VOICE_ID
+    actual_model_id =  DEFAULT_MODEL_ID
 
     # Find the voice by name if a string name is provided, otherwise assume it's an ID
     selected_voice = None
@@ -61,11 +64,8 @@ async def text_to_speech_save_to_file(text: str, file_path: str, voice_id: str =
     """
     Converts text to speech and saves it to a file.
     """
-    if not text:
-        return
-
-    actual_voice_id = voice_id or DEFAULT_VOICE_ID
-    actual_model_id = model_id or DEFAULT_MODEL_ID
+    actual_voice_id =  DEFAULT_VOICE_ID
+    actual_model_id =  DEFAULT_MODEL_ID
 
     selected_voice = None
     if isinstance(actual_voice_id, str):

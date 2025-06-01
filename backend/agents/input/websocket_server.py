@@ -68,7 +68,7 @@ class AudioWebSocketServer:
                     elif message == "STOP_STT":
                         stt_active = False
                         print("INFO: STT processing deactivated by client.")
-                        await ws_stream.__aexit__(None, None, None) # Properly close current stream
+                        await ws_stream.__exit__(None, None, None) # Properly close current stream
                          # Process accumulated audio after STOP_STT
                         print("INFO: STOP_STT received. Processing accumulated audio.")
                         # This block is duplicated below for when connection closes. Consider refactoring.
@@ -89,7 +89,7 @@ class AudioWebSocketServer:
             # which usually means the client disconnected.
             if stt_active:
                 print("INFO: WebSocket connection closed by client. Processing any pending audio for STT.")
-                await ws_stream.__aexit__(None, None, None) # Ensure all audio is flushed to stream
+                await ws_stream.__exit__(None, None, None) # Ensure all audio is flushed to stream
                 await self._process_stt_agent_tts(websocket, ws_stream)
 
 
