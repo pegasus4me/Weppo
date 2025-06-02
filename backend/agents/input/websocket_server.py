@@ -164,33 +164,42 @@ class AudioWebSocketServer:
                                             await websocket.send(json.dumps({"status": "tts_starting", "transcript": transcript_segment}))
                                             print(f"Streaming TTS for agent response: '{agent_response}' related to transcript: '{transcript_segment}'")
 
+                                            # Define sentinel and helper for more robust TTS stream handling
+                                            _TTS_STREAM_DONE = object()
+                                            def _get_next_chunk_sync(iterator, sentinel_on_done):
+                                                try:
+                                                    return next(iterator)
+                                                except StopIteration:
+                                                    return sentinel_on_done
+                                                # Other exceptions from the iterator will propagate
+
                                             # Get audio stream from ElevenLabsTTS (which is a synchronous iterator)
                                             loop = asyncio.get_running_loop()
                                             audio_iterator = self.tts_client.stream_audio(agent_response)
 
-                                            # Stream audio chunks to client by fetching from sync iterator in executor
+                                            # Stream audio chunks to client
                                             while True:
-                                                try:
-                                                    audio_chunk = await loop.run_in_executor(None, next, audio_iterator)
-                                                    if audio_chunk: # Ensure chunk is not empty
-                                                        await websocket.send(audio_chunk)
-                                                except StopIteration:
+                                                audio_chunk_or_sentinel = await loop.run_in_executor(
+                                                    None, _get_next_chunk_sync, audio_iterator, _TTS_STREAM_DONE
+                                                )
+
+                                                if audio_chunk_or_sentinel is _TTS_STREAM_DONE:
                                                     # End of audio stream
                                                     break
-                                                except Exception as chunk_fetch_error:
-                                                    # This will be caught by the outer e_tts exception handler
-                                                    print(f"ERROR: Error fetching/sending TTS chunk for transcript '{transcript_segment}': {chunk_fetch_error}")
-                                                    raise chunk_fetch_error
+
+                                                # If not sentinel, it's an audio chunk
+                                                if audio_chunk_or_sentinel: # Ensure chunk has content
+                                                    await websocket.send(audio_chunk_or_sentinel)
 
                                             await websocket.send(json.dumps({"status": "tts_finished", "transcript": transcript_segment}))
                                             print(f"TTS streaming finished for transcript: '{transcript_segment}'")
                                         except Exception as e_tts:
-                                            # Catch errors from TTS streaming process (including StopIteration if not handled before or other errors)
+                                            # Catches errors from run_in_executor (if _get_next_chunk_sync itself fails, or underlying iterator fails)
+                                            # or from websocket.send()
                                             print(f"ERROR: TTS streaming error for transcript '{transcript_segment}': {e_tts}")
-                                            # Avoid sending error for StopIteration if it somehow propagates here
-                                            if not isinstance(e_tts, StopIteration):
-                                                await websocket.send(json.dumps({
-                                                    "status": "tts_error",
+                                            # No need to check for StopIteration here as it's handled by the sentinel
+                                            await websocket.send(json.dumps({
+                                                "status": "tts_error",
                                                     "error": str(e_tts),
                                                     "transcript": transcript_segment
                                                 }))
