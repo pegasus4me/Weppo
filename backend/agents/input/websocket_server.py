@@ -6,6 +6,7 @@ import json
 from google.cloud import speech
 from backend.agents.input.speech_input import speech_to_text, WebSocketStream
 from backend.agents.orchestrator.agent import PersonalShopperAgent
+from backend.agents.input.elevenlabs import ElevenLabsTTS
 
 """
 ws connection with client <-> server
@@ -23,6 +24,15 @@ class AudioWebSocketServer:
         self.clients = set()
           # Initialize the agent
         self.agent = PersonalShopperAgent(store_domain)
+        # Initialize ElevenLabsTTS client
+        self.tts_client = None
+        try:
+            self.tts_client = ElevenLabsTTS()
+            print("ElevenLabsTTS client initialized successfully.")
+        except ValueError as e:
+            print(f"WARNING: ElevenLabsTTS client initialization failed: {e}. TTS will not be available.")
+        except Exception as e: # Catch any other unexpected errors during init
+            print(f"WARNING: An unexpected error occurred during ElevenLabsTTS initialization: {e}. TTS will not be available.")
         
     async def handler(self, websocket):
         """Handle individual WebSocket connections."""
@@ -98,6 +108,95 @@ class AudioWebSocketServer:
                                         "agent_response": agent_response,
                                         "transcript": transcript_segment
                                     }))
+
+                                    # Start TTS streaming if client is available
+                                    if self.tts_client:
+                                        try:
+                                            # TTS Streaming Protocol:
+                                            # The client will receive a sequence of messages related to TTS streaming for the agent's response.
+                                            # It's crucial to handle these messages in order and appropriately.
+                                            #
+                                            # 1. TTS Starting Notification (JSON):
+                                            #    Before any audio data is sent, a JSON message indicates the start of TTS:
+                                            #    {
+                                            #        "status": "tts_starting",
+                                            #        "transcript": "The original transcript segment that prompted this agent response and TTS."
+                                            #    }
+                                            #    The client can use this to prepare for receiving audio data.
+                                            #
+                                            # 2. Binary Audio Chunks (WebSocket Binary Frames):
+                                            #    Following the "tts_starting" message, a series of binary WebSocket frames will be sent.
+                                            #    Each frame contains a chunk of the audio data.
+                                            #    The format of this audio (e.g., MP3, PCM) is determined by the `output_format`
+                                            #    parameter used in the ElevenLabsTTS class (default is "mp3_44100_128").
+                                            #    The client *must* be able to handle this specific audio format.
+                                            #
+                                            #    Client-side Handling of Audio Chunks:
+                                            #    - Buffer the Chunks: The client should accumulate these binary chunks.
+                                            #    - Concatenation: Once all chunks are received (signaled by "tts_finished"),
+                                            #      concatenate them into a single ArrayBuffer or Blob.
+                                            #    - Web Audio API for Playback:
+                                            #      - Use `AudioContext.decodeAudioData()` to decode the complete audio data.
+                                            #      - Then, play it back using an `AudioBufferSourceNode`.
+                                            #    - Advanced Streaming: For lower latency, more advanced techniques could be used,
+                                            #      such as Media Source Extensions (MSE) or libraries that abstract away the complexities
+                                            #      of streaming playback, but simple buffering and playback after "tts_finished" is a robust start.
+                                            #
+                                            # 3. TTS Finished Notification (JSON):
+                                            #    After all audio chunks for the current agent response have been sent, a JSON message indicates completion:
+                                            #    {
+                                            #        "status": "tts_finished",
+                                            #        "transcript": "The original transcript segment."
+                                            #    }
+                                            #    At this point, the client should have all the audio data and can proceed with decoding and playback
+                                            #    if it hasn't already started a streaming playback.
+                                            #
+                                            # 4. TTS Error Notification (JSON, Optional):
+                                            #    If an error occurs during the TTS process on the server-side, a JSON message will be sent:
+                                            #    {
+                                            #        "status": "tts_error",
+                                            #        "error": "A description of the error.",
+                                            #        "transcript": "The original transcript segment."
+                                            #    }
+                                            #    The client should handle this gracefully, perhaps by informing the user that audio playback failed.
+                                            #
+                                            # The `transcript` field in these messages helps associate the TTS audio with the specific part of the conversation.
+                                            await websocket.send(json.dumps({"status": "tts_starting", "transcript": transcript_segment}))
+                                            print(f"Streaming TTS for agent response: '{agent_response}' related to transcript: '{transcript_segment}'")
+
+                                            # Get audio stream from ElevenLabsTTS (which is a synchronous iterator)
+                                            loop = asyncio.get_running_loop()
+                                            audio_iterator = self.tts_client.stream_audio(agent_response)
+
+                                            # Stream audio chunks to client by fetching from sync iterator in executor
+                                            while True:
+                                                try:
+                                                    audio_chunk = await loop.run_in_executor(None, next, audio_iterator)
+                                                    if audio_chunk: # Ensure chunk is not empty
+                                                        await websocket.send(audio_chunk)
+                                                except StopIteration:
+                                                    # End of audio stream
+                                                    break
+                                                except Exception as chunk_fetch_error:
+                                                    # This will be caught by the outer e_tts exception handler
+                                                    print(f"ERROR: Error fetching/sending TTS chunk for transcript '{transcript_segment}': {chunk_fetch_error}")
+                                                    raise chunk_fetch_error
+
+                                            await websocket.send(json.dumps({"status": "tts_finished", "transcript": transcript_segment}))
+                                            print(f"TTS streaming finished for transcript: '{transcript_segment}'")
+                                        except Exception as e_tts:
+                                            # Catch errors from TTS streaming process (including StopIteration if not handled before or other errors)
+                                            print(f"ERROR: TTS streaming error for transcript '{transcript_segment}': {e_tts}")
+                                            # Avoid sending error for StopIteration if it somehow propagates here
+                                            if not isinstance(e_tts, StopIteration):
+                                                await websocket.send(json.dumps({
+                                                    "status": "tts_error",
+                                                    "error": str(e_tts),
+                                                    "transcript": transcript_segment
+                                                }))
+                                    else:
+                                        print(f"Skipping TTS for transcript '{transcript_segment}' because TTS client is not available.")
+
                                 except Exception as e:
                                     print(f"ERROR: Exception processing with agent: {e}")
                                     await websocket.send(json.dumps({
