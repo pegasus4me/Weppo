@@ -38,93 +38,108 @@ class AudioWebSocketServer:
             
             # Define speech recognition task
             async def process_audio():
-                print(f"INFO: process_audio task started for client {websocket.remote_address}") # Modified
-                print("Starting speech recognition in executor...") # Kept
+                print(f"INFO: process_audio task started for client {websocket.remote_address}")
+                print("Starting speech recognition in executor...")
 
                 loop = asyncio.get_running_loop()
                 transcript_queue = asyncio.Queue()
-                processing_exception = None # To capture exceptions from the executor thread
+                processing_exception = None
 
                 # Synchronous wrapper function to run in executor
-                def sync_speech_processor(stream, queue_obj): # Renamed queue to queue_obj to avoid conflict
+                def sync_speech_processor(stream, queue_obj):
                     nonlocal processing_exception
                     try:
-                        # Removed: DEBUG: sync_speech_processor started...
-                        for segment in speech_to_text(stream): # This is speech_input.speech_to_text
-                            # Removed: DEBUG: sync_speech_processor got segment...
+                        print("DEBUG: sync_speech_processor started...")
+                        for segment in speech_to_text(stream):
+                            print(f"DEBUG: sync_speech_processor got segment: {segment}")
                             queue_obj.put_nowait(segment)
                         queue_obj.put_nowait(None)  # Sentinel to indicate end of processing
-                        # Removed: DEBUG: sync_speech_processor finished...
+                        print("DEBUG: sync_speech_processor finished...")
                     except Exception as e:
-                        print(f"ERROR: Exception in sync_speech_processor: {e}") # Kept
+                        print(f"ERROR: Exception in sync_speech_processor: {e}")
                         processing_exception = e
-                        queue_obj.put_nowait(None) # Ensure consumer loop also terminates on error
+                        queue_obj.put_nowait(None)
 
+                print("DEBUG LE SANG 🇬🇧")
 
-                # Run the synchronous generator in an executor
-                # The 'ws_stream' and 'transcript_queue' are passed as args to sync_speech_processor
-                await loop.run_in_executor(None, sync_speech_processor, ws_stream, transcript_queue)
-                # Removed: DEBUG: loop.run_in_executor completed...
-
-                # Consume from the queue
-                while True:
-                    # Removed: DEBUG: process_audio waiting for transcript from queue...
-                    transcript_segment = await transcript_queue.get()
-                    # Removed: DEBUG: process_audio got transcript from queue...
-
-                    if transcript_segment is None:  # Sentinel received
-                        # Removed: DEBUG: process_audio received sentinel...
-                        break
-
-                    if processing_exception:
-                        print(f"ERROR: An exception occurred during speech processing: {processing_exception}. Breaking loop.") # Kept
-                        # Optionally, send an error message to the client
-                        # await websocket.send(json.dumps({"error": str(processing_exception)}))
-                        break
-
-                    print(f"Received transcript segment (from queue): {transcript_segment}") # Kept
-                    if transcript_segment and transcript_segment.strip():
-                        await websocket.send(json.dumps({
-                            "transcript": transcript_segment,
-                            "is_final": True
-                        }))
-
-                     # Process with agent and get response
+                # Start the synchronous generator in an executor (don't await it yet)
+                executor_task = loop.run_in_executor(None, sync_speech_processor, ws_stream, transcript_queue)
+                
+                # Create a task to consume from the queue concurrently
+                async def consume_transcripts():
+                    while True:
                         try:
-                            print(f"Processing transcript with agent: {transcript_segment}")
-                            agent_response = await self.process_with_agent(transcript_segment, client_thread_id)
-                            print(f"Agent response: {agent_response}")
+                            # Wait for transcript with a timeout to check if executor is done
+                            transcript_segment = await asyncio.wait_for(transcript_queue.get(), timeout=1.0)
                             
-                            # Send agent response to client
-                            await websocket.send(json.dumps({
-                                "agent_response": agent_response,
-                                "transcript": transcript_segment
-                            }))
-                        except Exception as e:
-                            print(f"ERROR: Exception processing with agent: {e}")
-                            await websocket.send(json.dumps({
-                                "error": f"Agent processing error: {str(e)}",
-                                "transcript": transcript_segment
-                            }))
-                    transcript_queue.task_done() # Notify queue item processed
+                            if transcript_segment is None:  # Sentinel received
+                                print("DEBUG: Received sentinel, breaking consume loop")
+                                break
+
+                            if processing_exception:
+                                print(f"ERROR: An exception occurred during speech processing: {processing_exception}. Breaking loop.")
+                                break
+
+                            print(f"Received transcript segment (from queue): {transcript_segment}")
+                            if transcript_segment and transcript_segment.strip():
+                                await websocket.send(json.dumps({
+                                    "transcript": transcript_segment,
+                                    "is_final": True
+                                }))
+
+                                # Process with agent and get response
+                                try:
+                                    print(f"Processing transcript with agent: {transcript_segment}")
+                                    agent_response = await self.process_with_agent(transcript_segment, client_thread_id)
+                                    print(f"Agent response: {agent_response}")
+                                    
+                                    # Send agent response to client
+                                    await websocket.send(json.dumps({
+                                        "agent_response": agent_response,
+                                        "transcript": transcript_segment
+                                    }))
+                                except Exception as e:
+                                    print(f"ERROR: Exception processing with agent: {e}")
+                                    await websocket.send(json.dumps({
+                                        "error": f"Agent processing error: {str(e)}",
+                                        "transcript": transcript_segment
+                                    }))
+                            
+                            transcript_queue.task_done()
+                            
+                        except asyncio.TimeoutError:
+                            # Check if the executor task is done
+                            if executor_task.done():
+                                # Executor finished, check for any remaining items in queue
+                                try:
+                                    transcript_segment = transcript_queue.get_nowait()
+                                    if transcript_segment is None:
+                                        break
+                                    # Process the remaining segment...
+                                    # (same processing logic as above)
+                                except asyncio.QueueEmpty:
+                                    break
+                            # Continue waiting if executor is still running
+                            continue
+
+                # Start consuming transcripts concurrently
+                consume_task = asyncio.create_task(consume_transcripts())
+                
+                # Wait for both the executor and consumer to complete
+                await asyncio.gather(executor_task, consume_task, return_exceptions=True)
+                
+                print("DEBUG: Both executor and consumer tasks completed")
 
                 if processing_exception:
-                    # Re-raise or handle the exception as appropriate for the server
-                    # For now, just printing it prominently in server logs if it reaches here
-                    print(f"ERROR: Final check: Speech processing encountered an error for ws_stream {id(ws_stream)}: {processing_exception}") # Kept
-
-                # Removed: DEBUG: process_audio finished consuming queue...
+                    print(f"ERROR: Final check: Speech processing encountered an error for ws_stream {id(ws_stream)}: {processing_exception}")
 
             # Handle incoming audio chunks
             async for message in websocket:
-                print(f"Received audio chunk of size: {len(message)} bytes") # Original print
-
                 if not message:
-                    # Empty message check removed as per plan, if it's important, it can be re-added with non-DEBUG prefix.
                     continue
 
                 if process_task is None:
-                    print("First audio chunk received. Starting speech recognition task.") # Original print
+                    print("First audio chunk received. Starting speech recognition task.")
                     process_task = asyncio.create_task(process_audio())
 
                 ws_stream.put_audio(message)
@@ -138,9 +153,11 @@ class AudioWebSocketServer:
                 
         finally:
             self.clients.remove(websocket)
+
     async def process_with_agent(self, transcript: str, thread_id: str) -> str:
         """Process transcript with the agent in a separate thread to avoid blocking."""
         loop = asyncio.get_running_loop()
+        print(f"TESTPRINT:")
         
         # Run the agent chat in an executor since it's synchronous
         def run_agent_chat():
@@ -153,6 +170,7 @@ class AudioWebSocketServer:
         # Execute in thread pool
         response = await loop.run_in_executor(None, run_agent_chat)
         return response   
+
     async def start(self):
         """Start the WebSocket server."""
         server = await websockets.serve(
