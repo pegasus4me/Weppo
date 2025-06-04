@@ -17,7 +17,7 @@ class ElevenLabsTTS:
     def stream_audio(
         self,
         text: str,
-        voice_id: str = "JBFqnCBsd6RMkjVDRZzb",
+        voice_id: str = "vBKc2FfBKJfcZNyEt1n6",
         model_id: str = "eleven_multilingual_v2",
         output_format: str = "mp3_44100_128",
     ):

@@ -1,4 +1,7 @@
 {% schema %}
+  // Liquid schema for Shopify settings:
+  // - button_text: Text for the toggle button.
+  // - primary_color: Primary color used for button, header, and orb.
   {
     "name": "Personal Shopper Widget",
     "target": "body",
@@ -17,22 +20,412 @@
       }
     ]
   }
-  {% endschema %}
-  
-  <div class="personal-shopper-widget" style="position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 1000; display: flex; height: 50vh;">
-   
+{% endschema %}
+
+<style>
+  /* Main container for the entire widget, fixed to the right side of the screen */
+  .personal-shopper-widget {
+    position: fixed; /* Keeps widget in place during scroll */
+    right: 0;
+    top: 50%; /* Vertically centers the widget */
+    transform: translateY(-50%);
+    z-index: 1000; /* Ensures widget is above most other content */
+    display: flex; /* Aligns toggle button and chat container side-by-side */
+    align-items: center; /* Vertically aligns items if they have different heights */
+  }
+
+  /* Button to open/close the chat interface */
+  .toggle-button {
+    background-color: {{ settings.primary_color }};
+    color: white;
+    border: none;
+    padding: 10px;
+    cursor: pointer;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    border-radius: 4px 0 0 4px;
+    min-height: 150px; /* Minimum height for the vertical button */
+    font-size: 16px;
+  }
+
+  /* Container for the chat interface, hidden by default */
+  .chat-container {
+    display: none; /* Initially hidden, shown via JavaScript */
+    flex-direction: column; /* Stacks header, messages, input vertically */
+    width: 350px; /* Fixed width for the chat window */
+    height: 70vh; /* Takes up 70% of the viewport height */
+    background-color: #fff;
+    border: 1px solid #ccc;
+    box-shadow: -2px 0 5px rgba(0,0,0,0.1); /* Adds a subtle shadow to the left */
+    border-left: none; /* Avoids double border with toggle button */
+  }
+
+  /* Header section of the chat window */
+  .chat-header {
+    background-color: {{ settings.primary_color }};
+    color: white;
+    padding: 10px;
+    text-align: center;
+    font-size: 18px;
+  }
+
+  /* Area where chat messages are displayed */
+  .messages-area {
+    flex-grow: 1; /* Takes up available vertical space */
+    padding: 10px;
+    overflow-y: auto; /* Enables scrolling for messages */
+    border-bottom: 1px solid #eee;
+  }
+
+  /* Container for the audio orb */
+  .audio-orb-container {
+    padding: 15px 10px;
+    text-align: center;
+    border-top: 1px solid #eee; /* Visual separation */
+  }
+
+  /* The audio orb element, styled as a circle */
+  .audio-orb {
+    width: 50px;
+    height: 50px;
+    background-color: {{ settings.primary_color }};
+    border-radius: 50%;
+    margin: 0 auto;
+    cursor: pointer;
+    transition: background-color 0.3s ease; /* Smooth transition for background color changes */
+  }
+
+  /* 
+    Keyframe animation for the audio orb.
+    Creates a pulsating effect by scaling and changing opacity.
+    Designed to be more organic with multiple steps.
+  */
+  @keyframes pulsate {
+    0% {
+      transform: scale(1);
+      opacity: 0.9;
+    }
+    20% {
+      transform: scale(1.05);
+      opacity: 0.7;
+    }
+    50% {
+      transform: scale(1.12);
+      opacity: 1;
+    }
+    80% {
+      transform: scale(1.05);
+      opacity: 0.7;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 0.9;
+    }
+  }
+  .orb-animating {
+    animation: pulsate 2s infinite ease-in-out; /* Applies the 'pulsate' animation over 2 seconds, infinitely, with ease-in-out timing */
+  }
+
+  /* Container for the message input field and send button */
+  .input-area {
+    display: flex; /* Aligns input field and send button horizontally */
+    padding: 10px;
+    border-top: 1px solid #eee;
+    background-color: #f9f9f9; /* Slightly different background for the input area */
+  }
+
+  /* Text input field for user messages */
+  .message-input {
+    flex-grow: 1;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+  .send-button {
+    background-color: {{ settings.primary_color }};
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    margin-left: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+</style>
+
+<!-- Main HTML structure for the Personal Shopper Widget -->
+<div class="personal-shopper-widget">
+  <!-- Button to toggle the visibility of the chat container -->
+  <button class="toggle-button">
+    {{ settings.button_text }}
+  </button>
+  <!-- Container for the entire chat interface -->
+  <div class="chat-container">
+    <!-- Header of the chat window -->
+    <div class="chat-header">
+      Personal Shopper
+    </div>
+    <!-- Area where messages are displayed -->
+    <div class="messages-area">
+      <!-- Chat messages will be dynamically added here by JavaScript -->
+    </div>
+    <!-- Container for the visual audio orb -->
+    <div class="audio-orb-container">
+      <div class="audio-orb"></div>
+    </div>
+    <!-- Area for user text input and send button -->
+    <div class="input-area">
+      <input type="text" class="message-input" placeholder="Type your message...">
+      <button class="send-button">Send</button>
+    </div>
   </div>
+</div>
   
-  <script>
-    document.addEventListener('DOMContentLoaded', function() {
-      const toggleButton = document.querySelector('.toggle-button');
-      const chatContainer = document.querySelector('.chat-container');
-      let isOpen = false;
-  
+<script>
+  /**
+   * ---------------------------------------------------------------------------------
+   * Personal Shopper Widget - Frontend Logic
+   * ---------------------------------------------------------------------------------
+   * This script handles the behavior of the personal shopper chat widget, including:
+   * - Toggling the chat interface visibility.
+   * - Managing a visual audio orb animation.
+   * - Handling user message input and display.
+   * - Placeholder functions for backend communication (sending/receiving messages).
+   *
+   * Backend Integration Points:
+   * To connect this to a Python (or any other) backend:
+   * 1. Establish a persistent connection, typically using WebSockets.
+   *    - The client (this script) would initiate a WebSocket connection to your server.
+   * 2. Implement message sending:
+   *    - Modify `sendMessageToServer(message)` to send the user's message over the WebSocket.
+   * 3. Implement message receiving:
+   *    - Set up an event listener for messages from the WebSocket server (e.g., `websocket.onmessage`).
+   *    - This listener should call `onMessageFromServer(messageData)` with the data received from the server.
+   * 4. The Python server will need a WebSocket endpoint to handle incoming connections,
+   *    receive messages from clients, process them (e.g., via an AI model), and send responses back.
+   *
+   * Key functions for integration:
+   * - `sendMessageToServer(message)`: Modify this to send messages to your backend.
+   * - `onMessageFromServer(messageData)`: Modify your WebSocket `onmessage` handler to call this with server responses.
+   * ---------------------------------------------------------------------------------
+   */
+  document.addEventListener('DOMContentLoaded', function() {
+    // DOM Element Selectors
+    const toggleButton = document.querySelector('.toggle-button');
+    const chatContainer = document.querySelector('.chat-container');
+    const audioOrb = document.querySelector('.audio-orb');
+    const messageInput = document.querySelector('.message-input');
+    const sendButton = document.querySelector('.send-button');
+    const messagesArea = document.querySelector('.messages-area');
+
+    let isOpen = false; // Tracks the open/closed state of the chat window
+    let orbAnimationTimeout = null; // Stores the timeout ID for stopping orb animation
+
+    // Function to toggle chat window visibility
+    if (toggleButton && chatContainer) {
       toggleButton.addEventListener('click', function() {
         isOpen = !isOpen;
         chatContainer.style.display = isOpen ? 'flex' : 'none';
-        toggleButton.style.borderRadius = isOpen ? '0' : '4px 0 0 4px';
+        // Adjust toggle button's border radius for a seamless look when chat is open
+        if (isOpen) {
+          toggleButton.style.borderTopRightRadius = '0';
+          toggleButton.style.borderBottomRightRadius = '0';
+        } else {
+          // Revert to original border radius defined in CSS
+          toggleButton.style.borderTopRightRadius = ''; 
+          toggleButton.style.borderBottomRightRadius = '';
+        }
       });
-    });
-  </script>
+    }
+
+    /**
+     * Starts the audio orb animation.
+     * Adds the 'orb-animating' class to the orb element.
+     */
+    function startOrbAnimation() {
+      if (audioOrb) {
+        audioOrb.classList.add('orb-animating');
+      }
+    }
+
+    /**
+     * Stops the audio orb animation.
+     * Removes the 'orb-animating' class and clears any pending animation timeouts.
+     */
+    function stopOrbAnimation() {
+      if (audioOrb) {
+        audioOrb.classList.remove('orb-animating');
+      }
+      if (orbAnimationTimeout) {
+        clearTimeout(orbAnimationTimeout); 
+      }
+    }
+
+    // Event listener for the audio orb (currently for testing animation)
+    if (audioOrb) {
+      audioOrb.addEventListener('click', function() {
+        console.log('Audio orb clicked');
+        if (audioOrb.classList.contains('orb-animating')) {
+          stopOrbAnimation();
+          console.log('Orb animation stopped by click.');
+        } else {
+          startOrbAnimation();
+          console.log('Orb animation started by click.');
+          // For testing: automatically stop animation after 3 seconds
+          if (orbAnimationTimeout) clearTimeout(orbAnimationTimeout); 
+          orbAnimationTimeout = setTimeout(() => {
+            stopOrbAnimation();
+            console.log('Orb animation automatically stopped after 3s.');
+          }, 3000);
+        }
+        // TODO: Future - Integrate actual audio recording/playback functionality here.
+        // e.g., startRecording() when clicked, stopRecording() on second click or voice activity detection.
+      });
+    }
+
+    // Optional: Uncomment to link orb animation to chat state or input focus
+    // if (toggleButton && chatContainer) {
+    //   toggleButton.addEventListener('click', function() {
+    //     if (chatContainer.style.display === 'flex') { 
+    //       // startOrbAnimation(); 
+    //     }
+    //   });
+    // }
+    // if (messageInput) {
+    //   messageInput.addEventListener('focus', function() {
+    //     // stopOrbAnimation(); 
+    //   });
+    // }
+    
+    /**
+     * Sends a message from the user to the (simulated) server.
+     * @param {string} message - The text message from the user.
+     */
+    function sendMessageToServer(message) {
+      console.log("Sending to server:", message);
+      // --------------------------------------------------------------------------
+      // TODO: BACKEND INTEGRATION - Replace simulation with actual backend call.
+      // This is where you would send the message to your Python backend.
+      // Example using WebSocket:
+      // if (websocket && websocket.readyState === WebSocket.OPEN) {
+      //   websocket.send(JSON.stringify({ type: 'user_message', payload: { text: message } }));
+      // } else {
+      //   console.error("WebSocket is not connected.");
+      //   // Handle error: display message to user, try to reconnect, etc.
+      // }
+      //
+      // Example using Fetch API (for a RESTful endpoint):
+      // fetch('/api/chat', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({ message: message })
+      // }).then(response => response.json()).then(data => {
+      //   // If your server responds directly to POST, handle it here or via onMessageFromServer
+      // }).catch(error => console.error('Error sending message:', error));
+      // --------------------------------------------------------------------------
+      
+      // SIMULATION: Remove this timeout when actual backend is connected.
+      // This simulates a server response after 1.5 seconds.
+      setTimeout(() => {
+        onMessageFromServer({ sender: 'agent', text: 'Thanks for your message! This is a simulated agent response.' });
+      }, 1500);
+    }
+
+    /**
+     * Handles a message received from the (simulated) server and displays it.
+     * @param {object} messageData - The message data from the server.
+     * Expected structure: { sender: 'agent' | 'user', text: 'message content' }
+     */
+    function onMessageFromServer(messageData) {
+      // ------------------------------------------------------------------------------------
+      // TODO: BACKEND INTEGRATION - This function should be called by your WebSocket 'onmessage' handler.
+      // Example WebSocket event listener setup (typically done once after connection):
+      // websocket.onmessage = (event) => {
+      //   try {
+      //     const dataFromServer = JSON.parse(event.data);
+      //     // Assuming server sends messages with a specific type, e.g., 'agent_response'
+      //     if (dataFromServer.type === 'agent_response' && dataFromServer.payload) {
+      //       onMessageFromServer(dataFromServer.payload); // payload might be { sender: 'agent', text: '...' }
+      //     } else if (dataFromServer.type === 'chat_history') {
+      //       // Handle chat history if sent by server
+      //     } // Add more conditions for other message types from server
+      //   } catch (error) {
+      //     console.error("Error processing message from server:", error);
+      //   }
+      // };
+      // websocket.onerror = (error) => { console.error("WebSocket error:", error); };
+      // websocket.onclose = () => { console.log("WebSocket connection closed."); };
+      // ------------------------------------------------------------------------------------
+      console.log("Received from server:", messageData);
+
+      if (messagesArea && messageData && messageData.text) {
+        addMessageToDisplay(messageData.text, messageData.sender);
+
+        if (messageData.sender === 'agent') {
+          startOrbAnimation(); // Start animation when agent "speaks"
+          // Stop animation after a short delay to simulate end of agent's speech
+          if (orbAnimationTimeout) clearTimeout(orbAnimationTimeout);
+          orbAnimationTimeout = setTimeout(() => {
+            stopOrbAnimation();
+            console.log('Orb animation stopped after agent message.');
+          }, 3000); // Adjust delay as needed
+        }
+      }
+    }
+    
+    /**
+     * Adds a message to the chat display area.
+     * @param {string} text - The message text.
+     * @param {string} sender - 'user' or 'agent'.
+     */
+    function addMessageToDisplay(text, sender) {
+      if (!messagesArea) return;
+      const messageElement = document.createElement('div');
+      messageElement.textContent = (sender === 'agent' ? 'Agent: ' : 'You: ') + text;
+      
+      // Common styles
+      messageElement.style.margin = '5px 0';
+      messageElement.style.padding = '8px 12px';
+      messageElement.style.borderRadius = '15px';
+      messageElement.style.maxWidth = '80%';
+      messageElement.style.wordWrap = 'break-word';
+
+      if (sender === 'user') {
+        messageElement.style.textAlign = 'right';
+        messageElement.style.backgroundColor = '#e1f5fe'; // Light blue for user messages
+        messageElement.style.marginLeft = 'auto'; 
+      } else { // 'agent' or other
+        messageElement.style.textAlign = 'left';
+        messageElement.style.backgroundColor = '#f0f0f0'; // Light grey for agent messages
+        messageElement.style.marginRight = 'auto';
+      }
+        
+      messagesArea.appendChild(messageElement);
+      messagesArea.scrollTop = messagesArea.scrollHeight; // Auto-scroll to the latest message
+    }
+
+    /**
+     * Handles the sending of a user's message.
+     * Displays the message locally and then sends it to the server.
+     */
+    function handleUserSendMessage() { 
+      if (!messageInput) return;
+      const messageText = messageInput.value.trim();
+      if (messageText) {
+        addMessageToDisplay(messageText, 'user'); // Display user's message locally
+        messageInput.value = ''; // Clear input field
+        sendMessageToServer(messageText); // Send message to the server
+      }
+    }
+
+    // Event listeners for sending messages
+    if (sendButton && messageInput) {
+      sendButton.addEventListener('click', handleUserSendMessage);
+      messageInput.addEventListener('keypress', function(event) {
+        if (event.key === 'Enter') {
+          event.preventDefault(); // Prevent default form submission if applicable
+          handleUserSendMessage();
+        }
+      });
+    }
+  });
+</script>
