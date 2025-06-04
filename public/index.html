@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weppo Voice Shopping Assistant</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .controls {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center; /* Center orb and button */
+        }
+        button {
+            padding: 12px 24px;
+            margin: 10px; /* Adjusted margin for centering with orb */
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            transition: background-color 0.3s;
+        }
+        button:hover:not(:disabled) {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 6px;
+            background-color: #e8f4fd;
+            border: 1px solid #bee5eb;
+            font-weight: 500;
+        }
+        .response-area {
+            margin-top: 20px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .response-area h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        #transcript {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #007bff;
+            border-radius: 4px;
+            min-height: 20px;
+        }
+        #agentResponse {
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #28a745;
+            border-radius: 4px;
+            min-height: 20px;
+            line-height: 1.6;
+        }
+        #agentResponse h2, #agentResponse h3, #agentResponse h4 {
+            color: #2c5530;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+        #agentResponse h2 { font-size: 1.4em; }
+        #agentResponse h3 { font-size: 1.2em; }
+        #agentResponse h4 { font-size: 1.1em; }
+        #agentResponse a { color: #007bff; text-decoration: none; }
+        #agentResponse a:hover { text-decoration: underline; }
+        #agentResponse strong { color: #2c5530; }
+        .header { text-align: center; margin-bottom: 30px; color: #333; }
+        .instructions { background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 15px; margin-bottom: 20px; }
+        .instructions h4 { margin-top: 0; color: #856404; }
+        .instructions p { margin-bottom: 0; color: #856404; }
+
+        /* Voice Orb CSS */
+        #voiceOrb {
+            width: 50px;
+            height: 50px;
+            background-color: #4CAF50; /* Green, matches button - default state */
+            border-radius: 50%;
+            margin: 20px auto; /* Center it */
+            transition: transform 0.2s ease-out, background-color 0.2s ease-out, box-shadow 0.2s ease-out;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+        }
+
+        #voiceOrb.user-speaking {
+            background-color: #007bff; /* Blue when user speaks */
+            transform: scale(1.2);
+            animation: pulse 1s infinite alternate;
+        }
+
+        #voiceOrb.agent-speaking {
+            background-color: #ffc107; /* Yellow/Amber when agent speaks */
+            transform: scale(1.1);
+            animation: glow 1.5s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from { box-shadow: 0 0 8px rgba(0, 123, 255, 0.4); }
+            to { box-shadow: 0 0 18px rgba(0, 123, 255, 0.9); }
+        }
+
+        @keyframes glow {
+            from { box-shadow: 0 0 8px rgba(255, 193, 7, 0.4); }
+            to { box-shadow: 0 0 18px rgba(255, 193, 7, 0.9); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛍️ Voice Shopping Assistant</h1>
+        <p>Speak naturally to find products and get personalized recommendations</p>
+    </div>
+
+    <div class="instructions">
+        <h4>How to use:</h4>
+        <p>1. Click "Call Agent" and allow microphone access<br>
+        2. Speak naturally about what you're looking for (orb turns blue)<br>
+        3. The assistant will reply (orb turns yellow)<br>
+        4. Click "End Call" when finished</p>
+    </div>
+
+    <div class="controls">
+        <h2>Audio Controls</h2>
+        <div id="voiceOrb"></div>
+        <button id="callButton">📞 Call Agent</button>
+        <div id="status">Status: Not connected</div>
+    </div>
+
+    <div class="response-area">
+        <h3>💬 Conversation</h3>
+        <div id="transcript"></div>
+        <div id="agentResponse"></div>
+    </div>
+
+    <script>
+        // WebSocket connection
+        const ws = new WebSocket('ws://localhost:8000');
+        console.log('WebSocket instance created');
+
+        // Audio context and configuration
+        let audioContext; // For recording
+        let mediaStream;
+        let workletNode;
+        const SAMPLE_RATE = 16000;
+
+        // TTS specific variables
+        let ttsAudioContext;
+        let audioBufferQueue = [];
+        let isStreamingAudio = false;
+
+        // Call state
+        let isCallActive = false;
+
+        // UI Elements
+        const callButton = document.getElementById('callButton');
+        const statusDiv = document.getElementById('status');
+        const transcriptDiv = document.getElementById('transcript');
+        const agentResponseDiv = document.getElementById('agentResponse');
+        const voiceOrb = document.getElementById('voiceOrb'); // Voice Orb Element
+
+        // WebSocket event handlers
+        ws.onopen = () => {
+            console.log('WebSocket connection established');
+            statusDiv.textContent = 'Status: ✅ Connected. Ready to call.';
+            callButton.disabled = false;
+            ws.binaryType = "arraybuffer";
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket connection closed');
+            statusDiv.textContent = 'Status: ❌ Disconnected from server';
+            callButton.disabled = true;
+            callButton.textContent = '📞 Call Agent';
+            isCallActive = false;
+            isStreamingAudio = false;
+            audioBufferQueue = [];
+            voiceOrb.classList.remove('user-speaking', 'agent-speaking'); // Reset orb
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            statusDiv.textContent = 'Status: ⚠️ Error connecting to server';
+            callButton.disabled = true;
+            callButton.textContent = '📞 Call Agent';
+            isCallActive = false;
+            isStreamingAudio = false;
+            audioBufferQueue = [];
+            voiceOrb.classList.remove('user-speaking', 'agent-speaking'); // Reset orb
+        };
+
+        ws.onmessage = (event) => {
+            if (typeof event.data === 'string') {
+                console.log('Received JSON message from server:', event.data);
+                try {
+                    const response = JSON.parse(event.data);
+                    console.log('Parsed JSON response:', response);
+
+                    if (response.transcript) {
+                        transcriptDiv.innerHTML = `<strong>You said:</strong> "${response.transcript}"`;
+                    }
+
+                    if (response.agent_response) {
+                        const formattedResponse = formatAgentResponse(response.agent_response);
+                        agentResponseDiv.innerHTML = `<strong>Assistant:</strong><br><br>${formattedResponse}`;
+                    }
+
+                    if (response.status) {
+                        switch (response.status) {
+                            case 'tts_starting':
+                                console.log("TTS audio streaming is starting for transcript:", response.transcript);
+                                isStreamingAudio = true;
+                                audioBufferQueue = [];
+                                if (!ttsAudioContext || ttsAudioContext.state === 'closed') {
+                                    ttsAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                                }
+                                voiceOrb.classList.remove('user-speaking');
+                                voiceOrb.classList.add('agent-speaking');
+                                break;
+                            case 'tts_finished':
+                                console.log("TTS audio streaming finished for transcript:", response.transcript);
+                                isStreamingAudio = false;
+                                voiceOrb.classList.remove('agent-speaking');
+                                if (audioBufferQueue.length > 0) {
+                                    playBufferedAudio();
+                                }
+                                break;
+                            case 'tts_error':
+                                console.error("TTS Error from server:", response.error, "for transcript:", response.transcript);
+                                agentResponseDiv.innerHTML += `<br><strong style="color: #dc3545;">TTS Error:</strong> ${response.error}`;
+                                isStreamingAudio = false;
+                                audioBufferQueue = [];
+                                voiceOrb.classList.remove('agent-speaking');
+                                break;
+                        }
+                    }
+
+                    if (response.error && !response.status) {
+                        agentResponseDiv.innerHTML = `<strong style="color: #dc3545;">Error:</strong> ${response.error}`;
+                    }
+
+                } catch (e) {
+                    console.error('Error parsing JSON message:', e, event.data);
+                    agentResponseDiv.innerHTML = `<strong style="color: #dc3545;">Error:</strong> Could not parse server response.`;
+                }
+            } else if (event.data instanceof ArrayBuffer) {
+                if (isStreamingAudio) {
+                    audioBufferQueue.push(event.data);
+                }
+            } else {
+                console.warn("Received unexpected message type from server:", event.data);
+            }
+        };
+
+        async function playBufferedAudio() {
+            if (!ttsAudioContext || ttsAudioContext.state === 'closed' || audioBufferQueue.length === 0) {
+                audioBufferQueue = [];
+                return;
+            }
+            let totalLength = 0;
+            audioBufferQueue.forEach(buffer => { totalLength += buffer.byteLength; });
+            let concatenatedBuffer = new Uint8Array(totalLength);
+            let offset = 0;
+            audioBufferQueue.forEach(buffer => {
+                concatenatedBuffer.set(new Uint8Array(buffer), offset);
+                offset += buffer.byteLength;
+            });
+            audioBufferQueue = [];
+            try {
+                const decodedAudio = await ttsAudioContext.decodeAudioData(concatenatedBuffer.buffer);
+                const source = ttsAudioContext.createBufferSource();
+                source.buffer = decodedAudio;
+                source.connect(ttsAudioContext.destination);
+                source.onended = () => { // Ensure orb stops glowing after playback if no other state takes over
+                    if (!isCallActive && !isStreamingAudio) { // Check if a new state hasn't started
+                         voiceOrb.classList.remove('agent-speaking');
+                    }
+                };
+                source.start(0);
+            } catch (e) {
+                console.error("Error decoding or playing audio:", e);
+                agentResponseDiv.innerHTML += `<br><strong style="color: #dc3545;">Playback Error:</strong> Could not play audio.`;
+                voiceOrb.classList.remove('agent-speaking'); // Stop glow on error too
+            }
+        }
+
+        function formatAgentResponse(response) {
+            let formatted = response
+                .replace(/### (.*?)(?=\n|$)/g, '<h4>$1</h4>')
+                .replace(/## (.*?)(?=\n|$)/g, '<h3>$1</h3>')
+                .replace(/# (.*?)(?=\n|$)/g, '<h2>$1</h2>')
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/^- (.*$)/gim, '• $1')
+                .replace(/\n/g, '<br>');
+            return formatted;
+        }
+
+        async function startCall() {
+            console.log('Starting call...');
+            if (ws.readyState !== WebSocket.OPEN) {
+                statusDiv.textContent = 'Status: ⚠️ WebSocket not connected. Please wait.';
+                return;
+            }
+            callButton.disabled = true;
+
+            try {
+                transcriptDiv.innerHTML = '<em>Connecting...</em>';
+                agentResponseDiv.innerHTML = '<em>Waiting for assistant...</em>';
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                if (!audioContext || audioContext.state === 'closed') {
+                    audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+                }
+                await audioContext.audioWorklet.addModule('audio-processor.js');
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+                workletNode.port.onmessage = (event) => {
+                    if (ws.readyState === WebSocket.OPEN && isCallActive) {
+                        const audioData = event.data;
+                        const pcmData = new Int16Array(audioData.length);
+                        for (let i = 0; i < audioData.length; i++) { pcmData[i] = audioData[i] * 0x7FFF; }
+                        ws.send(pcmData.buffer);
+                    }
+                };
+                source.connect(workletNode);
+                console.log('Audio nodes connected for recording');
+
+                isCallActive = true;
+                statusDiv.textContent = 'Status: 🎤 Call Active... Speak now!';
+                callButton.textContent = '🛑 End Call';
+                callButton.disabled = false;
+                voiceOrb.classList.remove('agent-speaking'); // Ensure agent glow is off
+                voiceOrb.classList.add('user-speaking');   // User is now speaking
+
+            } catch (error) {
+                console.error('Error starting call:', error);
+                statusDiv.textContent = 'Status: ❌ Error starting call: ' + error.message;
+                isCallActive = false;
+                callButton.textContent = '📞 Call Agent';
+                callButton.disabled = (ws.readyState !== WebSocket.OPEN);
+                voiceOrb.classList.remove('user-speaking', 'agent-speaking'); // Reset orb
+            }
+        }
+
+        function endCall() {
+            console.log('Ending call...');
+            isCallActive = false;
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+            }
+            if (workletNode) {
+                workletNode.port.onmessage = null;
+                workletNode.disconnect();
+                workletNode = null;
+            }
+            statusDiv.textContent = 'Status: ✅ Call Ended. Ready for new call.';
+            callButton.textContent = '📞 Call Agent';
+            callButton.disabled = (ws.readyState !== WebSocket.OPEN);
+            voiceOrb.classList.remove('user-speaking');
+            // Do not remove 'agent-speaking' here if TTS might start immediately after user stops.
+            // TTS 'tts_starting' will handle removing 'user-speaking'.
+            // If no TTS follows, 'agent-speaking' should ideally be removed by tts_finished or error.
+            // For safety, if TTS is not active, ensure agent-speaking is also cleared.
+            if (!isStreamingAudio) {
+                voiceOrb.classList.remove('agent-speaking');
+            }
+        }
+
+        callButton.addEventListener('click', () => {
+            if (!isCallActive) {
+                startCall();
+            } else {
+                endCall();
+            }
+        });
+
+        // Initialize UI state
+        callButton.textContent = '📞 Call Agent';
+        callButton.disabled = true;
+        console.log('UI initialized');
+    </script>
+</body>
+</html>
