@@ -151,20 +151,20 @@ class ImprovedAudioWebSocketServer:
         """Async wrapper for speech_to_text generator."""
         loop = asyncio.get_running_loop()
         
-        def sync_stt():
+        def sync_stt_worker(): # Renamed for clarity, as it's the worker function
             try:
-                for transcript in speech_to_text(audio_stream):
-                    yield transcript
+                # This function runs in the executor thread.
+                # It consumes the entire sync generator and returns a list of transcripts.
+                return list(speech_to_text(audio_stream))
             except Exception as e:
-                print(f"STT error: {e}")
-                return
+                print(f"STT error in executor thread: {e}") # More specific error message
+                return [] # Return an empty list on error to prevent breaking the caller
         
-        # Run in executor and yield results
-        executor = asyncio.create_task(
-            loop.run_in_executor(None, lambda: list(sync_stt()))
-        )
+        # Directly await the Future returned by run_in_executor.
+        # 'results' will be the list of transcripts once sync_stt_worker completes.
+        results = await loop.run_in_executor(None, sync_stt_worker)
         
-        results = await executor
+        # Yield each transcript from the collected list.
         for transcript in results:
             yield transcript
 
