@@ -13,6 +13,7 @@ const BUFFER_SIZE = 1024; // Example buffer size for worklet
 let ttsAudioContext; // Separate AudioContext for TTS playback
 let audioBufferQueue = [];
 let isStreamingAudio = false;
+let isCallActive = false;
 
 // UI Elements
 const callButton = document.getElementById('callButton');
@@ -38,7 +39,7 @@ ws.onclose = () => {
     console.log('WebSocket connection closed');
     statusDiv.textContent = 'Status: Disconnected from server';
     if (callButton) { callButton.disabled = true; callButton.textContent = '📞 Call Agent'; }
-    isCallActive = false;
+    // isCallActive is now global
     isStreamingAudio = false;
     audioBufferQueue = [];
     if (voiceOrb) voiceOrb.classList.remove('user-speaking', 'agent-speaking');
@@ -48,7 +49,7 @@ ws.onerror = (error) => {
     console.error('WebSocket error:', error);
     statusDiv.textContent = 'Status: Error connecting to server';
     if (callButton) { callButton.disabled = true; callButton.textContent = '📞 Call Agent'; }
-    isCallActive = false;
+    // isCallActive is now global
     if (voiceOrb) voiceOrb.classList.remove('user-speaking', 'agent-speaking');
 };
 
@@ -223,7 +224,7 @@ async function startCall() {
         ws.send(JSON.stringify({ type: 'start_listening' }));
         console.log('Sent start_listening message to server.');
 
-        isCallActive = true;
+        // isCallActive is now global
         statusDiv.textContent = 'Status: 🎤 Call Active... Speak now!';
         if (callButton) {
             callButton.textContent = '🛑 End Call';
@@ -236,7 +237,7 @@ async function startCall() {
     } catch (error) {
         console.error('Error starting call:', error);
         statusDiv.textContent = 'Status: Error starting call - ' + error.message;
-        isCallActive = false;
+        // isCallActive is now global
         if (callButton) {
             callButton.textContent = '📞 Call Agent';
             callButton.disabled = (ws.readyState !== WebSocket.OPEN);
@@ -246,7 +247,7 @@ async function startCall() {
 }
 
 function endCall() {
-    isCallActive = false;
+    // isCallActive is now global
     console.log('Ending call...');
     if (mediaStream) {
         mediaStream.getTracks().forEach(track => track.stop());
