@@ -15,33 +15,41 @@ let audioBufferQueue = [];
 let isStreamingAudio = false;
 
 // UI Elements
-const startButton = document.getElementById('startButton');
-const stopButton = document.getElementById('stopButton');
+const callButton = document.getElementById('callButton');
 const statusDiv = document.getElementById('status');
 const transcriptDiv = document.getElementById('transcript');
 const agentResponseDiv = document.getElementById('agentResponse');
+// It seems voiceOrb was referenced in the onmessage but not declared here.
+// This was likely an oversight when script.js was originally written, assuming it was for file.html
+// I will add it, assuming it's needed for the UI in file.html
+const voiceOrb = document.getElementById('voiceOrb');
+
 
 // WebSocket event handlers
 ws.onopen = () => {
     console.log('WebSocket connection established');
     statusDiv.textContent = 'Status: Connected to server';
-    startButton.disabled = false;
-    ws.binaryType = "arraybuffer"; // Important for receiving binary audio data
+    if (callButton) { callButton.disabled = false; callButton.textContent = '📞 Call Agent'; } // Check if element exists
+    ws.binaryType = "arraybuffer";
     console.log('WebSocket binaryType set to arraybuffer');
 };
 
 ws.onclose = () => {
     console.log('WebSocket connection closed');
     statusDiv.textContent = 'Status: Disconnected from server';
-    startButton.disabled = true;
-    stopButton.disabled = true;
-    isStreamingAudio = false; // Reset streaming flag
-    audioBufferQueue = []; // Clear queue
+    if (callButton) { callButton.disabled = true; callButton.textContent = '📞 Call Agent'; }
+    isCallActive = false;
+    isStreamingAudio = false;
+    audioBufferQueue = [];
+    if (voiceOrb) voiceOrb.classList.remove('user-speaking', 'agent-speaking');
 };
 
 ws.onerror = (error) => {
     console.error('WebSocket error:', error);
     statusDiv.textContent = 'Status: Error connecting to server';
+    if (callButton) { callButton.disabled = true; callButton.textContent = '📞 Call Agent'; }
+    isCallActive = false;
+    if (voiceOrb) voiceOrb.classList.remove('user-speaking', 'agent-speaking');
 };
 
 ws.onmessage = (event) => {
@@ -67,14 +75,16 @@ ws.onmessage = (event) => {
                 if (!ttsAudioContext || ttsAudioContext.state === 'closed') {
                     ttsAudioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
-                voiceOrb.classList.remove('user-speaking');
-                voiceOrb.classList.add('agent-speaking');
+                if (voiceOrb) {
+                    voiceOrb.classList.remove('user-speaking');
+                    voiceOrb.classList.add('agent-speaking');
+                }
             }
 
             if (response.type === 'tts_complete') {
                 console.log("TTS audio streaming finished. Chunks sent:", response.chunks_sent);
                 isStreamingAudio = false;
-                voiceOrb.classList.remove('agent-speaking');
+                if (voiceOrb) voiceOrb.classList.remove('agent-speaking');
                 if (audioBufferQueue.length > 0) {
                     playBufferedAudio();
                 }
@@ -85,7 +95,7 @@ ws.onmessage = (event) => {
                 agentResponseDiv.innerHTML += `<br><strong style="color: #dc3545;">TTS Error:</strong> ${response.error}`;
                 isStreamingAudio = false;
                 audioBufferQueue = [];
-                voiceOrb.classList.remove('agent-speaking');
+                if (voiceOrb) voiceOrb.classList.remove('agent-speaking');
             }
 
             if (response.type === 'error') {
@@ -105,11 +115,10 @@ ws.onmessage = (event) => {
     }
 };
 
-// Function to play buffered TTS audio
 async function playBufferedAudio() {
     if (!ttsAudioContext || ttsAudioContext.state === 'closed') {
         console.error('TTS AudioContext not available or closed.');
-        audioBufferQueue = []; // Clear queue as playback is not possible
+        audioBufferQueue = [];
         return;
     }
     if (audioBufferQueue.length === 0) {
@@ -119,7 +128,6 @@ async function playBufferedAudio() {
 
     console.log('Playing buffered audio. Chunks to process:', audioBufferQueue.length);
 
-    // Concatenate all ArrayBuffers in the queue into a single ArrayBuffer
     let totalLength = 0;
     audioBufferQueue.forEach(buffer => {
         totalLength += buffer.byteLength;
@@ -133,7 +141,7 @@ async function playBufferedAudio() {
     });
 
     console.log('Audio chunks concatenated. Total size:', concatenatedBuffer.byteLength);
-    audioBufferQueue = []; // Clear queue now that data is concatenated
+    audioBufferQueue = [];
 
     try {
         const audioBuffer = await ttsAudioContext.decodeAudioData(concatenatedBuffer.buffer);
@@ -144,9 +152,7 @@ async function playBufferedAudio() {
         sourceNode.connect(ttsAudioContext.destination);
         sourceNode.onended = () => {
             console.log('TTS audio playback finished.');
-            // Optionally close ttsAudioContext if no more TTS is expected soon,
-            // or keep it alive for subsequent playbacks.
-            // For now, keep it alive.
+            if (voiceOrb && !isStreamingAudio) voiceOrb.classList.remove('agent-speaking');
         };
         sourceNode.start(0);
         console.log('TTS audio playback started.');
@@ -154,165 +160,135 @@ async function playBufferedAudio() {
     } catch (error) {
         console.error('Error decoding or playing TTS audio:', error);
         agentResponseDiv.innerHTML += `<br><strong style="color: orange;">Playback Error:</strong> Could not decode/play audio.`;
+        if (voiceOrb) voiceOrb.classList.remove('agent-speaking');
     }
 }
 
-
-// Function to format agent response for better display
 function formatAgentResponse(response) {
-    // Convert markdown-style headers to HTML
     let formatted = response
         .replace(/### (.*?)(?=\n|$)/g, '<h4>$1</h4>')
         .replace(/## (.*?)(?=\n|$)/g, '<h3>$1</h3>')
         .replace(/# (.*?)(?=\n|$)/g, '<h2>$1</h2>')
-        // Convert markdown links to HTML links
         .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-        // Convert bold text
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        // Convert bullet points
-        .replace(/^- (.*$)/gim, '• $1') // Use 'm' flag for multiline
-        // Convert line breaks to HTML
+        .replace(/^- (.*$)/gim, '• $1')
         .replace(/\n/g, '<br>');
-
     return formatted;
 }
 
-// Audio capture functions
-async function startRecording() {
-    console.log('Starting recording...');
+async function startCall() {
+    console.log('Starting call...');
+    if (callButton) callButton.disabled = true;
+    if (ws.readyState !== WebSocket.OPEN) {
+        statusDiv.textContent = 'Status: ⚠️ WebSocket not connected. Please wait.';
+        return;
+    }
     try {
-        // Clear previous responses
         transcriptDiv.textContent = '';
         agentResponseDiv.textContent = '';
-
-        // Request microphone access
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         console.log('Microphone access granted');
 
-        // Create audio context for recording
         if (!audioContext || audioContext.state === 'closed') {
             audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
             console.log('Recording Audio context created with sample rate:', SAMPLE_RATE);
         } else if (audioContext.sampleRate !== SAMPLE_RATE) {
-            await audioContext.close(); // Close if existing context has wrong sample rate
+            await audioContext.close();
             audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
             console.log('Recording Audio context re-created with sample rate:', SAMPLE_RATE);
         }
 
-
-        // Load and initialize the audio worklet
-        // Ensure the path to 'audio-processor.js' is correct relative to your HTML file
         await audioContext.audioWorklet.addModule('audio-processor.js');
         console.log('Audio worklet loaded');
-
-        // Create audio source from microphone
         const source = audioContext.createMediaStreamSource(mediaStream);
         console.log('Audio source created from media stream');
-
-        // Create worklet node
         workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
         console.log('Audio worklet node created');
 
-        // Handle audio data from the worklet
         workletNode.port.onmessage = (event) => {
             if (ws.readyState === WebSocket.OPEN) {
-                const audioData = event.data; // Float32Array
-                // console.log('Received audio data from worklet, length:', audioData.length);
-                // Convert Float32Array to Int16Array for sending
+                const audioData = event.data;
                 const pcmData = new Int16Array(audioData.length);
                 for (let i = 0; i < audioData.length; i++) {
-                    pcmData[i] = audioData[i] * 0x7FFF; // Max Int16 value
+                    pcmData[i] = audioData[i] * 0x7FFF;
                 }
-                // console.log('Sending PCM data to server, length:', pcmData.length);
                 ws.send(pcmData.buffer);
-            } else {
-                // console.warn('WebSocket not open, cannot send audio data');
             }
         };
 
-        // Connect the nodes
         source.connect(workletNode);
-        // Do not connect workletNode to audioContext.destination for recording,
-        // unless you want to hear the raw microphone input.
-        // workletNode.connect(audioContext.destination);
         console.log('Audio nodes (source -> worklet) connected for recording.');
 
-        statusDiv.textContent = 'Status: Recording... Speak now!';
-        startButton.disabled = true;
-        stopButton.disabled = false;
+        // IMPORTANT: Send start_listening message
+        ws.send(JSON.stringify({ type: 'start_listening' }));
+        console.log('Sent start_listening message to server.');
+
+        isCallActive = true;
+        statusDiv.textContent = 'Status: 🎤 Call Active... Speak now!';
+        if (callButton) {
+            callButton.textContent = '🛑 End Call';
+            callButton.disabled = false;
+        }
+        if (voiceOrb) {
+            voiceOrb.classList.remove('agent-speaking');
+            voiceOrb.classList.add('user-speaking');
+        }
     } catch (error) {
-        console.error('Error starting recording:', error);
-        statusDiv.textContent = 'Status: Error starting recording - ' + error.message;
+        console.error('Error starting call:', error);
+        statusDiv.textContent = 'Status: Error starting call - ' + error.message;
+        isCallActive = false;
+        if (callButton) {
+            callButton.textContent = '📞 Call Agent';
+            callButton.disabled = (ws.readyState !== WebSocket.OPEN);
+        }
+        if (voiceOrb) voiceOrb.classList.remove('user-speaking', 'agent-speaking');
     }
 }
 
-function stopRecording() {
-    console.log('Stopping recording...');
+function endCall() {
+    isCallActive = false;
+    console.log('Ending call...');
     if (mediaStream) {
         mediaStream.getTracks().forEach(track => track.stop());
         console.log('Media stream tracks stopped');
     }
     if (workletNode) {
-        workletNode.port.onmessage = null; // Remove listener
+        workletNode.port.onmessage = null;
         workletNode.disconnect();
         console.log('Worklet node disconnected');
         workletNode = null;
     }
     if (audioContext && audioContext.state !== 'closed') {
-        // Close the recording audio context as it might not be needed until next recording
         audioContext.close().then(() => console.log('Recording AudioContext closed.'));
     }
-    statusDiv.textContent = 'Status: Connected to server';
-    startButton.disabled = false;
-    stopButton.disabled = true;
+
+    // IMPORTANT: Send stop_listening message
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'stop_listening' }));
+        console.log('Sent stop_listening message to server.');
+    }
+
+    statusDiv.textContent = 'Status: ✅ Call Ended. Ready for new call.';
+    if (callButton) {
+        callButton.textContent = '📞 Call Agent';
+        callButton.disabled = (ws.readyState !== WebSocket.OPEN);
+    }
+    if (voiceOrb) voiceOrb.classList.remove('user-speaking');
+    // Do not remove agent-speaking here, as TTS might still be playing
 }
 
 // Event listeners
-startButton.addEventListener('click', startRecording);
-stopButton.addEventListener('click', stopRecording);
-
-// Initialize UI state
-startButton.disabled = true; // Disabled until WebSocket connection is open
-stopButton.disabled = true;
-console.log('UI initialized');
-
-// --- audio-processor.js (Worklet code, ensure this file exists in the same directory or correct path) ---
-// This would typically be in a separate file `audio-processor.js`
-// For the sake of this task, I'm assuming its existence as per the original script.
-// If audio-processor.js needs to be created, it would look something like this:
-/*
-class AudioProcessor extends AudioWorkletProcessor {
-  constructor(options) {
-    super(options);
-    this.bufferSize = options.processorOptions && options.processorOptions.bufferSize || 1024; // Example, should match main script if passed
-    this.buffer = new Float32Array(this.bufferSize);
-    this.bufferPos = 0;
-    // Handle messages from the main thread if needed
-    this.port.onmessage = (event) => {
-      // console.log('[Worklet] Message from main thread:', event.data);
-    };
-  }
-
-  process(inputs, outputs, parameters) {
-    const input = inputs[0];
-    if (input && input.length > 0) {
-      const inputChannel = input[0]; // Assuming mono input
-      if (inputChannel) {
-        // Buffer and send data
-        for (let i = 0; i < inputChannel.length; i++) {
-          this.buffer[this.bufferPos++] = inputChannel[i];
-          if (this.bufferPos === this.bufferSize) {
-            this.port.postMessage(this.buffer);
-            this.bufferPos = 0;
-          }
+if (callButton) {
+    callButton.addEventListener('click', () => {
+        if (!isCallActive) {
+            startCall(); // Use new function name
+        } else {
+            endCall();   // Use new function name
         }
-      }
-    }
-    return true; // Keep processor alive
-  }
+    });
 }
 
-registerProcessor('audio-processor', AudioProcessor);
-*/
+// Initialize UI state
+if (callButton) callButton.disabled = true;
+console.log('UI initialized in script.js');
 console.log("Reminder: Ensure 'audio-processor.js' is correctly implemented and accessible.");
-console.log("The 'audio-processor.js' content shown here is a basic example.");

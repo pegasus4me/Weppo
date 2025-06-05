@@ -68,6 +68,28 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
+### Running the WebSocket Server Example
+
+The `websocket_server.py` located in `backend/agents/input/` provides a demonstration of real-time audio processing and interaction with the AI agent. To run this example:
+
+1.  **Start the Server**:
+    Run the Python script directly:
+    ```bash
+    python backend/agents/input/websocket_server.py
+    ```
+    You should see a message indicating the server has started, typically on `ws://localhost:8000`.
+
+2.  **Use the Example Client**:
+    Open the `example/file.html` file in your web browser.
+    This HTML page provides a user interface to:
+    *   Connect to the WebSocket server.
+    *   Initiate a "call" to the agent.
+    *   Stream audio from your microphone.
+    *   View transcriptions of your speech.
+    *   See and hear the agent's responses.
+
+    Make sure your browser has permission to access your microphone.
+
 ## WARNING 
 Its still in active developement
 
